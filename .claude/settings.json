@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ffprobe:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(du:*)",
+      "Bash(mkdir:*)"
+    ],
+    "ask": [
+      "Bash(ffmpeg:*)",
+      "Bash(rm:*)"
+    ]
+  }
+}

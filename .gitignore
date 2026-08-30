@@ -1,0 +1,11 @@
+# Video: pesado, no va al repo
+1-fuentes/
+2-normalizados/
+3-render/
+4-pruebas/
+*.mp4
+*.mov
+*.mkv
+*.wav
+
+.DS_Store
