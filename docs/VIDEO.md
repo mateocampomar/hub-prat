@@ -16,7 +16,12 @@ Si `r_frame_rate != avg_frame_rate` → el clip es VFR y hay que normalizarlo s�
 Clips con frames duplicados: `mpdecimate` + `minterpolate`.
 
 ## 4. Render final
-`scripts/render-tv-final-5.sh` — concatena en orden con 2s de negro entre bloques.
+`python3 scripts/panel.py` → panel web en `http://localhost:8787`.
+Ahí se ordenan los clips de `2-normalizados/` (drag & drop), se elige el
+separador de negro (default 2 s) y se exporta:
+- **Prueba**: 5 s por clip a `4-pruebas/PANEL-PRUEBA.mp4`.
+- **Final**: concat demuxer a `3-render/PRAT-TV-FINAL-N.mp4`. Si todos los
+  clips matchean la spec va con `-c copy` (sin re-encode, sin pérdida).
 
 Orden: PRAT General → Star Guitar → PRAT Construcción → Estranged → Acuario
 

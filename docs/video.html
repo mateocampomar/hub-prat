@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRAT — Pipeline de video</title>
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+<header><a href="./">← Hub</a></header>
+<h1>Pipeline de video</h1>
+<p class="sub">Spec: 29.97 CFR (30000/1001) · libx264 crf 18 preset slow · yuv420p · 1080p · AAC 48 kHz.</p>
+
+<h2>1 · Organizar</h2>
+<div class="caja"><p><code>scripts/organizar.sh</code> — ordena y renombra lo que entra en <code>1-fuentes/</code>.</p></div>
+
+<h2>2 · Inspeccionar</h2>
+<pre>ffprobe -v error -select_streams v:0 \
+  -show_entries stream=codec_name,width,height,r_frame_rate,avg_frame_rate,pix_fmt,nb_frames \
+  -of default=noprint_wrappers=1 archivo.mp4</pre>
+<div class="caja"><p>Si <code>r_frame_rate != avg_frame_rate</code> → el clip es VFR y hay que normalizarlo sí o sí.</p></div>
+
+<h2>3 · Normalizar</h2>
+<div class="caja"><ul>
+  <li>Todo a 29.97 CFR, misma resolución, yuv420p, audio AAC 48 kHz estéreo.</li>
+  <li>Clips con frames duplicados: <code>mpdecimate</code> + <code>minterpolate</code>.</li>
+  <li>Cambio de cadencia limpio: <code>minterpolate</code> para movimiento continuo (Star Guitar), <code>fps</code> para contenido fílmico (Estranged).</li>
+</ul></div>
+
+<h2>4 · Render final</h2>
+<div class="caja">
+  <p><code>python3 scripts/panel.py</code> → panel web en <code>localhost:8787</code>.
+  Orden de clips por drag &amp; drop, separador de negro configurable, y export:</p>
+  <ul>
+    <li><b>Prueba</b>: 5 s por clip a <code>4-pruebas/PANEL-PRUEBA.mp4</code>.</li>
+    <li><b>Final</b>: concat demuxer a <code>3-render/PRAT-TV-FINAL-N.mp4</code> — con <code>-c copy</code> si todos los clips matchean la spec (sin re-encode, sin pérdida).</li>
+  </ul>
+  <p style="margin-top:8px">Orden: PRAT General → Star Guitar → PRAT Construcción → Estranged → Acuario.</p>
+</div>
+
+<h2>5 · Validar</h2>
+<div class="caja"><ul>
+  <li>Duración total ≤ 30 min.</li>
+  <li><code>ffprobe</code> confirma CFR 30000/1001.</li>
+  <li>Reproducir en la TV rotada y chequear la portilla (<code>OFFX=238</code>, <code>GIRO=2</code>).</li>
+</ul></div>
+
+<footer>PRAT · hub-prat.skatoramps.com</footer>
+</body>
+</html>

@@ -26,7 +26,7 @@ que mueve flecos de techo + sonido.
 ├── 2-normalizados/  # clips normalizados a spec común
 ├── 3-render/        # salidas finales (PRAT-TV-FINAL-N.mp4)
 ├── 4-pruebas/       # tests, recortes, previews
-├── scripts/         # organizar.sh, normalizar.sh, render-tv-final-5.sh
+├── scripts/         # organizar.sh, panel.py (panel de render, puerto 8787)
 └── docs/            # HARDWARE.md, VIDEO.md, láminas HTML
 ```
 
@@ -95,6 +95,9 @@ bajo volumen de escritura).
 
 - [x] Arquitectura de hardware definida
 - [x] Acceso remoto resuelto (Tailscale + SSH)
+- [x] Material organizado en la estructura del repo
+- [x] Panel de render (`scripts/panel.py`, drag & drop + export)
+- [x] Normalizados: General, Construcción, Star Guitar, Estranged (falta Acuario: recorte pendiente)
 - [ ] Render final `PRAT-TV-FINAL-5.mp4` y validación en la TV por USB
 - [ ] Compra del kit Pi 5 en Mercado Libre UY (evita demora de importación)
 - [ ] Migrar de USB a Pi + mpv

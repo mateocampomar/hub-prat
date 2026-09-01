@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRAT — Hub</title>
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+<h1>PRAT</h1>
+<p class="sub">Instalación audiovisual sincronizada — showroom de baños, Montevideo.
+Un botón inalámbrico dispara video en TV vertical + luz LED + ventilador + sonido, en loop autónomo.</p>
+
+<div class="tarjetas">
+  <a class="tarjeta" href="hardware.html">
+    <h3>Hardware</h3>
+    <p>Topología, reglas de instalación y pendientes de armado. Pi 5 + ESP32 + ESP-NOW.</p>
+  </a>
+  <a class="tarjeta" href="video.html">
+    <h3>Pipeline de video</h3>
+    <p>Normalización a 29.97 CFR, panel de render y validación en la TV.</p>
+  </a>
+  <a class="tarjeta" href="https://github.com/mateocampomar/hub-prat">
+    <h3>Repositorio</h3>
+    <p>Scripts, panel de render y documentación en GitHub.</p>
+  </a>
+</div>
+
+<h2>Estado</h2>
+<div class="caja">
+  <ul class="check">
+    <li>Arquitectura de hardware definida</li>
+    <li>Acceso remoto resuelto (Tailscale + SSH)</li>
+    <li>Material organizado en la estructura del repo</li>
+    <li>Panel de render con orden drag &amp; drop y export</li>
+    <li>Normalizados: General, Star Guitar, Construcción, Estranged</li>
+    <li class="pend">Recorte y normalización de Acuario</li>
+    <li class="pend">Render final y validación en la TV por USB</li>
+    <li class="pend">Compra del kit Pi 5 (Mercado Libre UY)</li>
+    <li class="pend">Migrar reproducción de USB a Pi + mpv</li>
+    <li class="pend">Test de integración: botón → video + LED + ventilador</li>
+  </ul>
+</div>
+
+<h2>El sistema en una línea</h2>
+<div class="caja">
+  <pre>[Botón ESP-NOW] → [Raspberry Pi 5] → TV vertical + LED WS2812B + ventilador + parlante</pre>
+  <p style="color:var(--tenue); font-size:14px">Restricción dura: cero tensión de red dentro del baño — todo baja tensión.
+  El render corre en la Mac mini; el panel de control es local (necesita ffmpeg y los videos).</p>
+</div>
+
+<footer>PRAT · hub-prat.skatoramps.com</footer>
+</body>
+</html>

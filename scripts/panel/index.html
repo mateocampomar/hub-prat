@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRAT — Panel de render</title>
+<style>
+  :root {
+    --fondo: #0e1014; --panel: #171a21; --borde: #262b36;
+    --texto: #e8eaf0; --tenue: #8b93a5; --acento: #4da3ff;
+    --ok: #3ecf8e; --error: #ff6b6b; --ambar: #ffb454;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  body {
+    background: var(--fondo); color: var(--texto);
+    font: 15px/1.5 -apple-system, "SF Pro Text", Helvetica, Arial, sans-serif;
+    max-width: 780px; margin: 0 auto; padding: 32px 20px 60px;
+  }
+  h1 { font-size: 20px; letter-spacing: .3px; }
+  h1 small { color: var(--tenue); font-weight: 400; margin-left: 10px; font-size: 13px; }
+  .caja {
+    background: var(--panel); border: 1px solid var(--borde);
+    border-radius: 12px; padding: 16px; margin-top: 18px;
+  }
+  ul { list-style: none; }
+  li.clip {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; border: 1px solid var(--borde); border-radius: 9px;
+    margin-bottom: 8px; background: #1c202a; cursor: grab; user-select: none;
+  }
+  li.clip.arrastrando { opacity: .4; }
+  li.clip .agarre { color: var(--tenue); font-size: 17px; }
+  li.clip .num {
+    width: 24px; height: 24px; border-radius: 50%; background: var(--borde);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; color: var(--tenue); flex-shrink: 0;
+  }
+  li.clip .nombre { flex: 1; font-weight: 600; }
+  li.clip .meta { color: var(--tenue); font-size: 12.5px; }
+  li.clip.excluido { opacity: .45; }
+  li.clip input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--acento); }
+  .fila { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+  .fila label { color: var(--tenue); font-size: 13.5px; }
+  input[type=number] {
+    width: 64px; background: #10131a; color: var(--texto);
+    border: 1px solid var(--borde); border-radius: 7px; padding: 6px 8px; font-size: 14px;
+  }
+  .total { margin-left: auto; font-size: 13.5px; color: var(--tenue); }
+  .total b { color: var(--texto); font-size: 15px; }
+  button {
+    border: 0; border-radius: 8px; padding: 10px 18px; font-size: 14px;
+    font-weight: 600; cursor: pointer; color: #0b0d11;
+  }
+  button:disabled { opacity: .4; cursor: default; }
+  #btnPrueba { background: var(--ambar); }
+  #btnFinal { background: var(--acento); }
+  #btnComando { background: transparent; color: var(--tenue); border: 1px solid var(--borde); }
+  pre {
+    background: #10131a; border: 1px solid var(--borde); border-radius: 8px;
+    padding: 12px; font-size: 12px; line-height: 1.55; white-space: pre-wrap;
+    word-break: break-all; color: #b9c2d4; margin-top: 12px; display: none;
+  }
+  .barra { height: 10px; background: #10131a; border-radius: 6px; overflow: hidden; margin-top: 12px; display: none; }
+  .barra div { height: 100%; width: 0; background: var(--acento); transition: width .5s; }
+  #msg { margin-top: 10px; font-size: 13.5px; min-height: 20px; }
+  .ok { color: var(--ok); } .err { color: var(--error); } .info { color: var(--tenue); }
+</style>
+</head>
+<body>
+<h1>PRAT — Panel de render <small id="proxima"></small></h1>
+
+<div class="caja">
+  <ul id="lista"></ul>
+  <div class="fila" style="margin-top:6px">
+    <label>Separador (negro): <input type="number" id="sep" min="0" step="0.5" value="2"> s</label>
+    <span class="total">Duración total: <b id="total">—</b></span>
+  </div>
+</div>
+
+<div class="caja">
+  <div class="fila">
+    <button id="btnComando">Ver comando ffmpeg</button>
+    <button id="btnPrueba">Exportar prueba (5 s/clip)</button>
+    <button id="btnFinal">Exportar final</button>
+  </div>
+  <pre id="comando"></pre>
+  <div class="barra" id="barra"><div id="avance"></div></div>
+  <div id="msg"></div>
+</div>
+
+<script>
+let clips = [];          // [{nombre, dur, mb, fps, res, activo}]
+let corriendo = false;
+
+const $ = id => document.getElementById(id);
+const fmt = s => { s = Math.round(s); const m = Math.floor(s/60); return `${m}:${String(s%60).padStart(2,'0')}`; };
+const activos = () => clips.filter(c => c.activo);
+
+function calcTotal() {
+  const n = activos().length;
+  if (!n) { $('total').textContent = '—'; return; }
+  const sep = parseFloat($('sep').value) || 0;
+  const t = activos().reduce((a,c) => a + c.dur, 0) + sep * (n - 1);
+  $('total').textContent = fmt(t);
+}
+
+function render() {
+  const ul = $('lista');
+  ul.innerHTML = '';
+  let pos = 0;
+  clips.forEach((c, i) => {
+    const li = document.createElement('li');
+    li.className = 'clip' + (c.activo ? '' : ' excluido');
+    li.draggable = true;
+    li.dataset.i = i;
+    li.innerHTML = `
+      <span class="agarre">⠿</span>
+      <span class="num">${c.activo ? ++pos : '·'}</span>
+      <span class="nombre">${c.nombre}</span>
+      <span class="meta">${fmt(c.dur)} · ${c.res} · ${c.fps} · ${c.mb} MB</span>
+      <input type="checkbox" ${c.activo ? 'checked' : ''} title="incluir en el render">`;
+    li.querySelector('input').onchange = e => { c.activo = e.target.checked; render(); guardar(); };
+    li.addEventListener('dragstart', e => { li.classList.add('arrastrando'); e.dataTransfer.setData('text', i); });
+    li.addEventListener('dragend', () => li.classList.remove('arrastrando'));
+    li.addEventListener('dragover', e => e.preventDefault());
+    li.addEventListener('drop', e => {
+      e.preventDefault();
+      const desde = +e.dataTransfer.getData('text');
+      const hasta = +li.dataset.i;
+      if (desde === hasta) return;
+      clips.splice(hasta, 0, clips.splice(desde, 1)[0]);
+      render(); guardar();
+    });
+    ul.appendChild(li);
+  });
+  calcTotal();
+}
+
+async function guardar() {
+  await fetch('/api/orden', { method: 'POST', headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({ orden: clips.map(c => c.nombre), sep: parseFloat($('sep').value) || 2 }) });
+}
+
+function cuerpoExport(modo) {
+  return JSON.stringify({ orden: activos().map(c => c.nombre),
+                          sep: parseFloat($('sep').value) || 2, modo });
+}
+
+async function verComando(modo) {
+  const r = await fetch('/api/comando', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: cuerpoExport(modo) });
+  const d = await r.json();
+  const pre = $('comando');
+  pre.style.display = 'block';
+  if (d.error) { pre.textContent = 'Error: ' + d.error; return null; }
+  pre.textContent = `# salida: ${d.salida}  (${fmt(d.dur)}${d.copia ? ', concat sin re-encode' : ', re-encode'})\n` + d.comando;
+  return d;
+}
+
+async function exportar(modo) {
+  if (corriendo || !activos().length) return;
+  await verComando(modo);
+  const r = await fetch('/api/exportar', { method:'POST',
+    headers:{'Content-Type':'application/json'}, body: cuerpoExport(modo) });
+  const d = await r.json();
+  if (d.error) { $('msg').innerHTML = `<span class="err">${d.error}</span>`; return; }
+  corriendo = true;
+  $('barra').style.display = 'block';
+  seguir();
+}
+
+async function seguir() {
+  const r = await fetch('/api/estado');
+  const e = await r.json();
+  $('avance').style.width = (e.progreso * 100).toFixed(1) + '%';
+  if (e.estado === 'corriendo') {
+    $('msg').innerHTML = `<span class="info">Exportando ${e.salida}… ${(e.progreso*100).toFixed(0)} %</span>`;
+    setTimeout(seguir, 1000);
+  } else if (e.estado === 'ok') {
+    corriendo = false;
+    $('msg').innerHTML = `<span class="ok">Listo: ${e.salida}</span>`;
+    cargar();
+  } else if (e.estado === 'error') {
+    corriendo = false;
+    $('msg').innerHTML = `<span class="err">Falló el export</span><pre style="display:block">${e.log}</pre>`;
+  }
+}
+
+async function cargar() {
+  const d = await (await fetch('/api/clips')).json();
+  const previos = Object.fromEntries(clips.map(c => [c.nombre, c.activo]));
+  clips = d.clips.map(c => ({ ...c, activo: previos[c.nombre] ?? true }));
+  $('sep').value = d.sep;
+  $('proxima').textContent = 'próxima salida: ' + d.proxima;
+  render();
+}
+
+$('sep').onchange = () => { calcTotal(); guardar(); };
+$('btnComando').onclick = () => verComando('final');
+$('btnPrueba').onclick = () => exportar('prueba');
+$('btnFinal').onclick = () => exportar('final');
+cargar();
+</script>
+</body>
+</html>

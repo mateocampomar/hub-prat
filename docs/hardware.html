@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PRAT — Hardware</title>
+<link rel="stylesheet" href="estilo.css">
+</head>
+<body>
+<header><a href="./">← Hub</a></header>
+<h1>Hardware — cableado y notas</h1>
+<p class="sub">Cerebro: Raspberry Pi 5 (8GB) con mpv + scheduler de cues en Python.</p>
+
+<h2>Topología</h2>
+<pre>[Botón ESP32-C3 + 18650]
+        │ ESP-NOW
+        ▼
+[Raspberry Pi 5] ── HDMI ──&gt; TV (vertical, 90° horario)
+        │  └── USB ──&gt; DAC USB ──&gt; Edifier R12U
+        │
+        └── WiFi (router dedicado, sin internet)
+              ├──&gt; ESP32 + WLED ──&gt; tira WS2812B
+              └──&gt; ESP32-C3 ──&gt; MOSFET ──&gt; Deepcool XF120 (PWM 25 kHz)</pre>
+
+<h2>Reglas</h2>
+<div class="caja"><ul>
+  <li><b>Cero 220 V dentro del baño.</b> Todo baja tensión.</li>
+  <li>El parlante se alimenta por USB desde la Pi.</li>
+  <li>El router no tiene salida a internet: solo sirve a los nodos.</li>
+  <li>El botón usa ESP-NOW, no WiFi: dispara casi instantáneo y no depende del router.</li>
+</ul></div>
+
+<h2>Nodos</h2>
+<div class="caja"><table>
+  <tr><th>Nodo</th><th>Función</th></tr>
+  <tr><td>ESP32 + WLED</td><td>Tira LED WS2812B</td></tr>
+  <tr><td>ESP32-C3 + MOSFET</td><td>Ventilador Deepcool XF120, PWM por voltaje a 25 kHz</td></tr>
+  <tr><td>ESP32-C3 SuperMini + 18650</td><td>Botón inalámbrico ESP-NOW (~2 años de batería con el LED desoldado)</td></tr>
+</table></div>
+
+<h2>Pendientes de armado</h2>
+<div class="caja"><ul class="check">
+  <li class="pend">Confirmar kit Pi 5 8GB en Mercado Libre UY</li>
+  <li class="pend">Flashear WLED en el ESP32</li>
+  <li class="pend">Firmware del nodo ventilador (PWM 25 kHz por MOSFET)</li>
+  <li class="pend">Firmware del botón + desoldar LED de actividad</li>
+  <li class="pend">Scheduler de cues en Python sobre la Pi</li>
+</ul></div>
+
+<footer>PRAT · hub-prat.skatoramps.com</footer>
+</body>
+</html>

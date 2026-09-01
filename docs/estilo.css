@@ -1,0 +1,44 @@
+:root {
+  --fondo: #0e1014; --panel: #171a21; --borde: #262b36;
+  --texto: #e8eaf0; --tenue: #8b93a5; --acento: #4da3ff;
+  --ok: #3ecf8e; --ambar: #ffb454;
+}
+* { box-sizing: border-box; margin: 0; }
+body {
+  background: var(--fondo); color: var(--texto);
+  font: 16px/1.6 -apple-system, "SF Pro Text", Helvetica, Arial, sans-serif;
+  max-width: 820px; margin: 0 auto; padding: 40px 22px 80px;
+}
+header a { color: var(--tenue); text-decoration: none; font-size: 14px; }
+header a:hover { color: var(--acento); }
+h1 { font-size: 26px; margin: 10px 0 4px; letter-spacing: .3px; }
+.sub { color: var(--tenue); margin-bottom: 28px; }
+h2 { font-size: 17px; margin: 34px 0 12px; color: var(--acento); letter-spacing: .4px; }
+.caja {
+  background: var(--panel); border: 1px solid var(--borde);
+  border-radius: 12px; padding: 18px 20px; margin-bottom: 14px;
+}
+pre {
+  background: #10131a; border: 1px solid var(--borde); border-radius: 8px;
+  padding: 14px; overflow-x: auto; font-size: 13px; line-height: 1.5;
+  color: #b9c2d4;
+}
+code { font-family: "SF Mono", Menlo, monospace; font-size: .92em; color: #b9c2d4; }
+ul { padding-left: 22px; }
+li { margin: 5px 0; }
+.check { list-style: none; padding-left: 4px; }
+.check li::before { content: "✓ "; color: var(--ok); font-weight: 700; }
+.check li.pend::before { content: "○ "; color: var(--ambar); }
+table { border-collapse: collapse; width: 100%; font-size: 14.5px; }
+th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--borde); }
+th { color: var(--tenue); font-weight: 600; }
+a { color: var(--acento); }
+.tarjetas { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px; }
+.tarjeta {
+  background: var(--panel); border: 1px solid var(--borde); border-radius: 12px;
+  padding: 18px 20px; text-decoration: none; color: var(--texto); display: block;
+}
+.tarjeta:hover { border-color: var(--acento); }
+.tarjeta h3 { font-size: 16px; margin-bottom: 6px; }
+.tarjeta p { color: var(--tenue); font-size: 13.5px; }
+footer { margin-top: 50px; color: var(--tenue); font-size: 13px; border-top: 1px solid var(--borde); padding-top: 16px; }
