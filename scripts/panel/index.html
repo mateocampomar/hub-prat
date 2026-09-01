@@ -113,6 +113,7 @@
     <label>Separador (negro): <input type="number" id="sep" min="0" step="0.5" value="2"> s</label>
     <span class="total">Duración total: <b id="total">—</b></span>
   </div>
+  <div id="techo" style="text-align:right; font-size:12.5px; color:var(--tenue); margin-top:4px"></div>
 </div>
 
 <div class="caja">
@@ -134,12 +135,24 @@ const $ = id => document.getElementById(id);
 const fmt = s => { s = Math.round(s); const m = Math.floor(s/60); return `${m}:${String(s%60).padStart(2,'0')}`; };
 const activos = () => clips.filter(c => c.activo);
 
+const TECHO = 30 * 60;   // el proyecto no puede pasar de 30 min
+
 function calcTotal() {
   const n = activos().length;
   if (!n) { $('total').textContent = '—'; return; }
   const sep = parseFloat($('sep').value) || 0;
   const t = activos().reduce((a,c) => a + c.dur, 0) + sep * (n - 1);
-  $('total').textContent = fmt(t);
+  // Un segundo de tolerancia: cortar en keyframe deja sobras de centésimas y
+  // "se pasa 0:00" no le sirve a nadie.
+  const excede = t > TECHO + 1;
+  const e = $('total');
+  e.textContent = fmt(t);
+  e.style.color = excede ? 'var(--error)' : '';
+  $('techo').textContent = excede
+    ? `se pasa ${fmt(t - TECHO)} del techo de 30 min`
+    : (TECHO - t < 1 ? 'justo en el techo de 30 min'
+                     : `quedan ${fmt(TECHO - t)} para el techo de 30 min`);
+  $('techo').style.color = excede ? 'var(--error)' : 'var(--tenue)';
 }
 
 function render() {

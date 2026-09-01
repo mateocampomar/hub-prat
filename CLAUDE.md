@@ -97,7 +97,8 @@ bajo volumen de escritura).
 - [x] Acceso remoto resuelto (Tailscale + SSH)
 - [x] Material organizado en la estructura del repo
 - [x] Panel de render (`scripts/panel.py`, drag & drop + export)
-- [x] Normalizados: General, Construcción, Star Guitar, Estranged (falta Acuario: recorte pendiente)
+- [x] Normalizados los 5 de la spec. Acuario recortado a 1:00–13:55 (775 s):
+      la fuente dura 3h25m y arranca con logo de marca. Los 5 dan 30:00 exactos.
 - [ ] Render final `PRAT-TV-FINAL-5.mp4` y validación en la TV por USB
 - [ ] Compra del kit Pi 5 en Mercado Libre UY (evita demora de importación)
 - [ ] Migrar de USB a Pi + mpv
