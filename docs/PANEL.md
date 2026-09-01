@@ -98,8 +98,13 @@ Estos valores no son inventados: se dedujeron del render `PRAT-TV-FINAL-5.mp4`
 por comparación PSNR contra los clips fuente, y la cadena lo reproduce con
 PSNR 47 (reconstrucción exacta).
 
-La **vista previa** del panel muestra un cuadro con la geometría aplicada, así
-que OFFX se ajusta mirando, sin exportar media hora a ciegas.
+La **vista previa** muestra el cuadro **girado como se ve en la pared**, con la
+TV en vertical, y simula el **ojo de buey**: un círculo con el resto oscurecido,
+que es lo que la portilla física deja pasar. Así OFFX se ajusta mirando dónde
+queda el encuadre dentro de la portilla, sin exportar media hora a ciegas.
+
+Los controles (giro, OFFX, OFFY, clip del previo) viven detrás del **engranaje**
+del encabezado: no son de tocar todos los días y le quitaban lugar a la previa.
 
 Dos consecuencias de tenerla activada:
 

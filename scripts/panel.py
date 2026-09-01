@@ -633,9 +633,13 @@ class Handler(BaseHTTPRequestHandler):
                                         if k in GEOM_DEFAULT}})
                 seg = max(0.0, float(q.get("seg", ["10"])[0]))
                 filtro = cadena_geometria(g) if g["activa"] else "null"
+                # tv=1 devuelve el cuadro girado como se ve en la TV, que está
+                # montada en vertical: así la previa se mira igual que la pared.
+                if q.get("tv", ["0"])[0] == "1":
+                    filtro += ",transpose=1"
                 jpg = subprocess.run(
                     ["ffmpeg", "-v", "error", "-ss", str(seg), "-i", str(ruta),
-                     "-vf", f"{filtro},scale=640:-1", "-frames:v", "1",
+                     "-vf", f"{filtro},scale=-1:640", "-frames:v", "1",
                      "-f", "image2", "-c:v", "mjpeg", "-"],
                     capture_output=True, timeout=60).stdout
                 if not jpg:
