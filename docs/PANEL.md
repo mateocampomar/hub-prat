@@ -32,15 +32,16 @@ pese a ser HTTP.
 
 | Pieza | Dónde |
 |---|---|
-| Servidor | `scripts/panel.py`, escucha en `127.0.0.1:8787` |
+| Servidor | `scripts/panel.py`, escucha en `0.0.0.0:8787` (filtrado por red de origen) |
 | Credenciales | `.env` en la raíz del repo (fuera de git, permisos 600) |
 | Arranque automático | `~/Library/LaunchAgents/com.hub-prat.panel.plist` |
 | Salida a internet | túnel `youtube-stocks`, regla `hub-prat` en `~/.cloudflared/config.yml` |
 | Logs | `logs/panel.out.log` y `logs/panel.err.log` |
 
-El panel **nunca** se expone directo: escucha solo en loopback y a internet lo
-saca el túnel, que abre una conexión saliente (no hay puertos abiertos en el
-router).
+A internet solo lo saca el túnel, que abre una conexión saliente: no hay
+puertos abiertos en el router. Escucha en todas las interfaces para permitir la
+vía directa por Tailscale y LAN, pero rechaza con 403 cualquier origen fuera de
+esas redes.
 
 ## Subir videos
 
@@ -110,6 +111,20 @@ Dos consecuencias de tenerla activada:
 Con la geometría desactivada el export vuelve a ser concat sin re-encode
 (segundos), pero el resultado es 16:9 plano y **no es el formato que va a la
 TV** — sirve para revisar contenido y orden.
+
+## Videos generados
+
+El bloque **Videos generados** lista lo que hay en `3-render/` y `4-pruebas/`,
+más nuevo primero, con una miniatura de cada uno: de un vistazo se distingue el
+render que tiene la geometría de la TV (cuadrado con negro a los lados) del que
+salió 16:9 plano.
+
+El botón **Descargar** sirve el archivo con `Content-Disposition: attachment` y
+soporte de `Range`, así que una descarga cortada se puede reanudar y el archivo
+se transmite por bloques — cargar 2 GB en memoria voltearía el panel.
+
+Para bajar conviene la vía directa: son gigas, y por Cloudflare dan la vuelta
+por el datacenter.
 
 ## Operación
 

@@ -70,6 +70,28 @@
   }
   .barra { height: 10px; background: #10131a; border-radius: 6px; overflow: hidden; margin-top: 12px; display: none; }
   .barra div { height: 100%; width: 0; background: var(--acento); transition: width .5s; }
+  .salida {
+    display: flex; gap: 13px; align-items: center;
+    padding: 10px 12px; border: 1px solid var(--borde); border-radius: 9px;
+    margin-bottom: 8px; background: #1c202a;
+  }
+  .salida img {
+    width: 104px; height: 59px; object-fit: cover; flex-shrink: 0;
+    border-radius: 5px; background: #000; border: 1px solid var(--borde);
+  }
+  .salida .datos { flex: 1; min-width: 0; }
+  .salida .datos b { display: block; font-size: 14px; overflow: hidden;
+                     text-overflow: ellipsis; white-space: nowrap; }
+  .salida .datos span { color: var(--tenue); font-size: 12.5px; }
+  .salida .etq {
+    font-size: 11px; padding: 1px 7px; border-radius: 5px; margin-left: 7px;
+    background: var(--borde); color: var(--tenue); vertical-align: 1px;
+  }
+  .salida a.bajar {
+    background: var(--acento); color: #0b0d11; text-decoration: none;
+    border-radius: 8px; padding: 8px 15px; font-size: 13.5px; font-weight: 600;
+    flex-shrink: 0;
+  }
   #zona {
     border: 1.5px dashed var(--borde); border-radius: 10px; padding: 22px;
     text-align: center; color: var(--tenue); font-size: 14px; cursor: pointer;
@@ -144,6 +166,14 @@
     <label>previo de <select id="vistaClip"></select></label>
   </div>
   <img id="vista" alt="vista previa de la geometría">
+</div>
+
+<div class="caja">
+  <div class="fila" style="margin-bottom:12px">
+    <b style="font-size:15px">Videos generados</b>
+    <span style="color:var(--tenue); font-size:12.5px" id="avisoBajada"></span>
+  </div>
+  <div id="salidas2"></div>
 </div>
 
 <div class="caja">
@@ -285,6 +315,7 @@ async function seguir() {
     corriendo = false;
     $('msg').innerHTML = `<span class="ok">Listo: ${e.salida}</span>`;
     cargar();
+    cargarSalidas();
   } else if (e.estado === 'error') {
     corriendo = false;
     $('msg').innerHTML = `<span class="err">Falló el export</span><pre style="display:block">${e.log}</pre>`;
@@ -297,6 +328,7 @@ async function chequearVia() {
   try {
     const d = await (await fetch('/api/acceso')).json();
     if (!d.por_cloudflare || !d.directas.length) return;
+    $('avisoBajada').textContent = 'por la vía directa bajan mucho más rápido';
     const v = d.directas[0];
     $('aviso').style.display = 'block';
     $('aviso').innerHTML =
@@ -308,6 +340,40 @@ async function chequearVia() {
 }
 
 let geomCargada = false;
+// ---- Videos generados ----
+const gb = b => b >= 1e9 ? (b/1e9).toFixed(2) + ' GB' : (b/1e6).toFixed(0) + ' MB';
+
+function fecha(ts) {
+  const d = new Date(ts * 1000);
+  return d.toLocaleDateString('es-UY', {day:'2-digit', month:'2-digit'}) + ' ' +
+         d.toLocaleTimeString('es-UY', {hour:'2-digit', minute:'2-digit', hour12:false});
+}
+
+async function cargarSalidas() {
+  let d;
+  try { d = await (await fetch('/api/renders')).json(); } catch (_) { return; }
+  const cont = $('salidas2');
+  cont.innerHTML = '';
+  if (!d.salidas.length) {
+    cont.innerHTML = '<span style="color:var(--tenue);font-size:13.5px">' +
+                     'Todavía no hay videos generados.</span>';
+    return;
+  }
+  for (const s of d.salidas) {
+    const div = document.createElement('div');
+    div.className = 'salida';
+    const url = '/api/descargar?archivo=' + encodeURIComponent(s.nombre);
+    div.innerHTML = `
+      <img loading="lazy" src="/api/miniatura?archivo=${encodeURIComponent(s.nombre)}" alt="">
+      <div class="datos">
+        <b>${s.nombre}${s.tipo === 'prueba' ? '<span class="etq">prueba</span>' : ''}</b>
+        <span>${fmt(s.dur)} · ${gb(s.bytes)} · ${fecha(s.mtime)}</span>
+      </div>
+      <a class="bajar" href="${url}" download>Descargar</a>`;
+    cont.appendChild(div);
+  }
+}
+
 async function cargar() {
   const d = await (await fetch('/api/clips')).json();
   const previos = Object.fromEntries(clips.map(c => [c.nombre, c.activo]));
@@ -500,6 +566,7 @@ $('btnComando').onclick = () => verComando('final');
 $('btnPrueba').onclick = () => exportar('prueba');
 $('btnFinal').onclick = () => exportar('final');
 cargar();
+cargarSalidas();
 chequearVia();
 </script>
 </body>

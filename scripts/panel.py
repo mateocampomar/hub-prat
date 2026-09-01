@@ -322,6 +322,37 @@ def listar_clips():
     return clips, guardado.get("sep", SEP_DEFAULT), geom
 
 
+def salida_valida(nombre):
+    """Ruta de un render o una prueba, validando el nombre que manda el cliente."""
+    if "/" in nombre or "\\" in nombre or nombre.startswith("."):
+        raise ValueError(f"Nombre inválido: {nombre}")
+    for carpeta in (RENDER, PRUEBAS):
+        ruta = (carpeta / nombre).resolve()
+        if ruta.parent == carpeta.resolve() and ruta.is_file():
+            return ruta
+    raise ValueError(f"No existe el archivo {nombre}")
+
+
+def listar_renders():
+    """Los videos ya generados, para poder bajarlos desde el panel."""
+    salidas = []
+    for carpeta, tipo in ((RENDER, "render"), (PRUEBAS, "prueba")):
+        for f in carpeta.glob("*.mp4"):
+            if f.name.startswith("sep-"):
+                continue      # los separadores de negro no son entregables
+            try:
+                dur = float(ffprobe(f, "-show_entries", "format=duration")
+                            ["format"]["duration"])
+            except Exception:
+                dur = 0.0
+            st = f.stat()
+            salidas.append({"nombre": f.name, "tipo": tipo,
+                            "dur": round(dur, 1), "bytes": st.st_size,
+                            "mtime": int(st.st_mtime)})
+    salidas.sort(key=lambda x: x["mtime"], reverse=True)
+    return salidas
+
+
 def proxima_salida():
     ns = []
     for f in RENDER.glob("PRAT-TV-FINAL*.mp4"):
@@ -515,6 +546,58 @@ class Handler(BaseHTTPRequestHandler):
                          daemon=True).start()
         return {"ok": True, "completo": True, "nombre": destino.name}
 
+    def _enviar_archivo(self, ruta):
+        """Manda un video, soportando Range.
+
+        Sin Range el navegador no puede reanudar una descarga cortada ni
+        reproducir sin bajar el archivo entero, y acá pesan gigas. Se lee por
+        bloques: cargar 2 GB en memoria voltearía el panel.
+        """
+        total = ruta.stat().st_size
+        rango = self.headers.get("Range", "")
+        ini, fin = 0, total - 1
+        parcial = False
+        m = re.match(r"bytes=(\d*)-(\d*)$", rango.strip())
+        if m and (m.group(1) or m.group(2)):
+            if m.group(1):
+                ini = int(m.group(1))
+                if m.group(2):
+                    fin = int(m.group(2))
+            else:
+                ini = max(0, total - int(m.group(2)))   # sufijo: últimos N bytes
+            if ini >= total:
+                self.send_response(416)
+                self.send_header("Content-Range", f"bytes */{total}")
+                self.end_headers()
+                return
+            fin = min(fin, total - 1)
+            parcial = True
+
+        largo = fin - ini + 1
+        self.send_response(206 if parcial else 200)
+        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Content-Length", str(largo))
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Disposition",
+                         f'attachment; filename="{ruta.name}"')
+        if parcial:
+            self.send_header("Content-Range", f"bytes {ini}-{fin}/{total}")
+        self.end_headers()
+
+        try:
+            with open(ruta, "rb") as f:
+                f.seek(ini)
+                faltan = largo
+                while faltan > 0:
+                    datos = f.read(min(1 << 20, faltan))
+                    if not datos:
+                        break
+                    self.wfile.write(datos)
+                    faltan -= len(datos)
+        except (BrokenPipeError, ConnectionResetError):
+            # El navegador cortó la descarga: es normal, no hay nada que hacer.
+            self.close_connection = True
+
     def do_GET(self):
         if not self._red_ok() or not self._autorizado():
             return
@@ -549,6 +632,33 @@ class Handler(BaseHTTPRequestHandler):
                 return self.wfile.write(jpg)
             except Exception as e:
                 return self._json({"error": str(e)}, 400)
+        if partes.path == "/api/renders":
+            return self._json({"salidas": listar_renders()})
+        if partes.path == "/api/miniatura":
+            # Un cuadro del render: de un vistazo se distingue el que tiene la
+            # geometría de la TV del que salió 16:9 plano.
+            try:
+                ruta = salida_valida(parse_qs(partes.query)["archivo"][0])
+                jpg = subprocess.run(
+                    ["ffmpeg", "-v", "error", "-ss", "40", "-i", str(ruta),
+                     "-vf", "scale=200:-1", "-frames:v", "1",
+                     "-f", "image2", "-c:v", "mjpeg", "-"],
+                    capture_output=True, timeout=60).stdout
+                if not jpg:
+                    raise ValueError("no se pudo generar la miniatura")
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(jpg)))
+                self.end_headers()
+                return self.wfile.write(jpg)
+            except Exception as e:
+                return self._json({"error": str(e)}, 400)
+        if partes.path == "/api/descargar":
+            try:
+                ruta = salida_valida(parse_qs(partes.query)["archivo"][0])
+            except Exception as e:
+                return self._json({"error": str(e)}, 400)
+            return self._enviar_archivo(ruta)
         if partes.path == "/api/trabajos":
             with lock_trabajos:
                 return self._json(trabajos)
