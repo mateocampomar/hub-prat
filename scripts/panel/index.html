@@ -41,10 +41,18 @@
   li.clip input[type=checkbox] { width: 17px; height: 17px; accent-color: var(--acento); }
   .fila { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
   .fila label { color: var(--tenue); font-size: 13.5px; }
-  input[type=number] {
-    width: 64px; background: #10131a; color: var(--texto);
+  input[type=number], select {
+    background: #10131a; color: var(--texto);
     border: 1px solid var(--borde); border-radius: 7px; padding: 6px 8px; font-size: 14px;
   }
+  input[type=number] { width: 64px; }
+  #geomCtrl { transition: opacity .15s; }
+  #geomCtrl.off { opacity: .35; pointer-events: none; }
+  #vista {
+    display: block; width: 100%; max-width: 520px; margin: 14px auto 0;
+    border: 1px solid var(--borde); border-radius: 8px; background: #000;
+  }
+  #vista.off { display: none; }
   .total { margin-left: auto; font-size: 13.5px; color: var(--tenue); }
   .total b { color: var(--texto); font-size: 15px; }
   button {
@@ -114,6 +122,28 @@
     <span class="total">Duración total: <b id="total">—</b></span>
   </div>
   <div id="techo" style="text-align:right; font-size:12.5px; color:var(--tenue); margin-top:4px"></div>
+</div>
+
+<div class="caja">
+  <div class="fila" style="margin-bottom:12px">
+    <label style="color:var(--texto); font-weight:600">
+      <input type="checkbox" id="geomOn" style="width:16px;height:16px;accent-color:var(--acento);vertical-align:-2px">
+      Geometría de la TV
+    </label>
+    <span style="color:var(--tenue); font-size:12.5px">rotación + portilla · obliga a reencodear</span>
+  </div>
+  <div class="fila" id="geomCtrl">
+    <label>Giro <select id="giro">
+      <option value="0">sin girar</option>
+      <option value="1">90° horario</option>
+      <option value="2">90° antihorario</option>
+      <option value="3">90° antih. + espejo</option>
+    </select></label>
+    <label>OFFX <input type="number" id="offx" min="0" max="1920" step="1"></label>
+    <label>OFFY <input type="number" id="offy" min="0" max="1920" step="1"></label>
+    <label>previo de <select id="vistaClip"></select></label>
+  </div>
+  <img id="vista" alt="vista previa de la geometría">
 </div>
 
 <div class="caja">
@@ -189,12 +219,36 @@ function render() {
 
 async function guardar() {
   await fetch('/api/orden', { method: 'POST', headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({ orden: clips.map(c => c.nombre), sep: parseFloat($('sep').value) || 2 }) });
+    body: JSON.stringify({ orden: clips.map(c => c.nombre),
+                           sep: parseFloat($('sep').value) || 2,
+                           geom: geomActual() }) });
+}
+
+function geomActual() {
+  return { activa: $('geomOn').checked, giro: +$('giro').value,
+           offx: +$('offx').value || 0, offy: +$('offy').value || 0 };
 }
 
 function cuerpoExport(modo) {
   return JSON.stringify({ orden: activos().map(c => c.nombre),
-                          sep: parseFloat($('sep').value) || 2, modo });
+                          sep: parseFloat($('sep').value) || 2,
+                          geom: geomActual(), modo });
+}
+
+let tVista = null;
+function refrescarVista() {
+  const g = geomActual();
+  $('geomCtrl').className = 'fila' + (g.activa ? '' : ' off');
+  $('vista').className = g.activa ? '' : 'off';
+  if (!g.activa) return;
+  const clip = $('vistaClip').value;
+  if (!clip) return;
+  // Cada cuadro sale de un ffmpeg: al arrastrar los números conviene esperar.
+  clearTimeout(tVista);
+  tVista = setTimeout(() => {
+    $('vista').src = `/api/vista?clip=${encodeURIComponent(clip)}&seg=10` +
+      `&activa=1&giro=${g.giro}&offx=${g.offx}&offy=${g.offy}&t=${performance.now()|0}`;
+  }, 250);
 }
 
 async function verComando(modo) {
@@ -253,13 +307,28 @@ async function chequearVia() {
   } catch (_) {}
 }
 
+let geomCargada = false;
 async function cargar() {
   const d = await (await fetch('/api/clips')).json();
   const previos = Object.fromEntries(clips.map(c => [c.nombre, c.activo]));
   clips = d.clips.map(c => ({ ...c, activo: previos[c.nombre] ?? true }));
   $('sep').value = d.sep;
   $('proxima').textContent = 'próxima salida: ' + d.proxima;
+
+  // Los valores guardados se cargan una sola vez: si no, pisarían lo que
+  // estés ajustando cada vez que se refresca la lista.
+  if (!geomCargada && d.geom) {
+    geomCargada = true;
+    $('geomOn').checked = d.geom.activa;
+    $('giro').value = d.geom.giro;
+    $('offx').value = d.geom.offx;
+    $('offy').value = d.geom.offy;
+  }
+  const sel = $('vistaClip'), previo = sel.value;
+  sel.innerHTML = clips.map(c => `<option>${c.nombre}</option>`).join('');
+  if (previo && clips.some(c => c.nombre === previo)) sel.value = previo;
   render();
+  refrescarVista();
 }
 
 // ---- Subida de videos ----
@@ -424,6 +493,9 @@ $('archivos').onchange = e => { encolar(e.target.files); e.target.value = ''; };
 zona.addEventListener('drop', e => encolar(e.dataTransfer.files));
 
 $('sep').onchange = () => { calcTotal(); guardar(); };
+['geomOn','giro','offx','offy'].forEach(id =>
+  $(id).oninput = () => { refrescarVista(); guardar(); });
+$('vistaClip').onchange = refrescarVista;
 $('btnComando').onclick = () => verComando('final');
 $('btnPrueba').onclick = () => exportar('prueba');
 $('btnFinal').onclick = () => exportar('final');

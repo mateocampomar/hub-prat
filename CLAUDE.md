@@ -54,7 +54,10 @@ que mueve flecos de techo + sonido.
 - **Códec:** `libx264`, `-crf 18`, `-preset slow`, `-pix_fmt yuv420p`.
 - **Salida actual:** `3-render/PRAT-TV-FINAL-5.mp4`
 - **TV vertical**, rotada 90° horario, con portilla física superpuesta.
-- **Parámetros de geometría:** `OFFX=238`, `GIRO=2`
+- **Parámetros de geometría:** `OFFX=238`, `GIRO=2`, `OFFY=420`
+  Cadena exacta (deducida del FINAL-5 por PSNR, reproduce con PSNR 47):
+  `transpose=2,crop=in_w:in_w:0:420,pad=1920:1080:238:0`
+  El panel la aplica con vista previa; obliga a reencodear (~9 min por render).
 - **Orden de render:** PRAT General → Star Guitar → PRAT Construcción →
   Estranged → Acuario
 - **Separadores:** 2 segundos de negro entre bloques.

@@ -75,6 +75,42 @@ cliente le pregunta al servidor cuánto recibió realmente
 cortó —conexión caída, pestaña cerrada— se puede retomar: al volver a elegir el
 mismo archivo sigue desde donde iba en lugar de empezar de cero.
 
+## Geometría de la TV
+
+La TV está rotada 90° y tiene una portilla física encima, así que el render no
+es un 16:9 plano: lleva un recorte cuadrado del cuadro girado, corrido a la
+posición de la portilla. La cadena es
+
+```
+transpose=2,crop=in_w:in_w:0:420,pad=1920:1080:238:0
+```
+
+y sale de estos controles del panel:
+
+| Control | Default | Qué hace |
+|---|---|---|
+| Giro | `2` (90° antihorario) | `transpose`; compensa la rotación física de la TV |
+| OFFY | `420` | dónde cae el recorte cuadrado sobre el cuadro girado (420 = centrado) |
+| OFFX | `238` | dónde se apoya ese cuadrado en el lienzo de la TV, o sea la portilla |
+
+Estos valores no son inventados: se dedujeron del render `PRAT-TV-FINAL-5.mp4`
+por comparación PSNR contra los clips fuente, y la cadena lo reproduce con
+PSNR 47 (reconstrucción exacta).
+
+La **vista previa** del panel muestra un cuadro con la geometría aplicada, así
+que OFFX se ajusta mirando, sin exportar media hora a ciegas.
+
+Dos consecuencias de tenerla activada:
+
+- **Obliga a reencodear**: se pierde el concat con `-c copy`. Un render de 30
+  minutos tarda unos 9 minutos en la Mac mini (medido, `preset slow` `crf 18`).
+- **Tapa la marca de agua del Acuario**: el `Ocean Wonders 8K` de la esquina
+  queda fuera del recorte cuadrado. Sin geometría, se ve.
+
+Con la geometría desactivada el export vuelve a ser concat sin re-encode
+(segundos), pero el resultado es 16:9 plano y **no es el formato que va a la
+TV** — sirve para revisar contenido y orden.
+
 ## Operación
 
 ```bash

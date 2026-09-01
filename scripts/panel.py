@@ -46,6 +46,11 @@ PARCIALES = REPO / "4-pruebas" / ".subidas"
 
 SEP_DEFAULT = 2.0
 PRUEBA_SEG_POR_CLIP = 5.0
+
+# Geometría de la TV: está rotada 90° y tiene una portilla física encima, así
+# que el render lleva un recorte cuadrado del cuadro girado, corrido a la
+# posición de la portilla. Deducido del render PRAT-TV-FINAL-5 por PSNR.
+GEOM_DEFAULT = {"activa": True, "offx": 238, "offy": 420, "giro": 2}
 EXTENSIONES = {".mp4", ".mov", ".mkv", ".m4v", ".avi", ".webm"}
 
 # Spec de render (CLAUDE.md / docs/VIDEO.md)
@@ -109,6 +114,29 @@ def clip_valido(nombre):
     if ruta.parent != NORMALIZADOS.resolve() or not ruta.is_file():
         raise ValueError(f"No existe el clip {nombre}")
     return ruta
+
+
+def leer_geom(body):
+    """Toma la geometría del pedido, completando con los valores por defecto."""
+    g = dict(GEOM_DEFAULT)
+    g.update({k: v for k, v in (body.get("geom") or {}).items() if k in g})
+    g["activa"] = bool(g["activa"])
+    g["giro"] = int(g["giro"])
+    g["offx"], g["offy"] = int(g["offx"]), int(g["offy"])
+    if g["giro"] not in (0, 1, 2, 3):
+        raise ValueError("giro tiene que ser 0, 1, 2 o 3")
+    if not (0 <= g["offx"] <= SPEC_ANCHO) or not (0 <= g["offy"] <= SPEC_ANCHO):
+        raise ValueError("offset fuera de rango")
+    return g
+
+
+def cadena_geometria(g):
+    """transpose gira el cuadro; crop saca el cuadrado que se ve por la
+    portilla; pad lo reubica en el lienzo de la TV. Las medidas van por
+    expresión para no depender de que la fuente sea 1920x1080."""
+    return (f"transpose={g['giro']},"
+            f"crop=in_w:in_w:0:{g['offy']},"
+            f"pad={SPEC_ANCHO}:{SPEC_ALTO}:{g['offx']}:0")
 
 
 def red_permitida(ip):
@@ -289,7 +317,9 @@ def listar_clips():
         guardado = json.loads(ORDEN_JSON.read_text())
     orden = guardado.get("orden", [])
     clips.sort(key=lambda c: orden.index(c["nombre"]) if c["nombre"] in orden else 999)
-    return clips, guardado.get("sep", SEP_DEFAULT)
+    geom = dict(GEOM_DEFAULT)
+    geom.update(guardado.get("geom", {}))
+    return clips, guardado.get("sep", SEP_DEFAULT), geom
 
 
 def proxima_salida():
@@ -318,16 +348,19 @@ def separador(seg):
     return out
 
 
-def armar_export(orden, sep, modo):
+def armar_export(orden, sep, modo, geom=None):
     """Devuelve (comando ffmpeg, archivo de lista, salida, dur_total, copia)."""
     if not orden:
         raise ValueError("No hay clips seleccionados")
+    geom = geom or dict(GEOM_DEFAULT)
     rutas = [clip_valido(n) for n in orden]
     props = [props_clip(r) for r in rutas]
 
-    # ¿streams uniformes? → concat con -c copy (sin pérdida)
+    # ¿streams uniformes? → concat con -c copy (sin pérdida). Con geometría no
+    # hay caso: hay que reencodear para poder tocar el cuadro.
     copia = (
-        len({p["video"] for p in props}) == 1
+        not geom["activa"]
+        and len({p["video"] for p in props}) == 1
         and len({p["audio"] for p in props}) == 1
         and props[0]["audio"] is not None
         and modo == "final"
@@ -352,6 +385,8 @@ def armar_export(orden, sep, modo):
     lista.write("\n".join(lineas) + "\n")
     lista.close()
 
+    filtro = ["-vf", cadena_geometria(geom)] if geom["activa"] else []
+
     if modo == "prueba":
         salida = PRUEBAS / "PANEL-PRUEBA.mp4"
         codec = ["-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
@@ -366,7 +401,7 @@ def armar_export(orden, sep, modo):
                      "-c:a", "aac", "-b:a", "192k"]
 
     cmd = ["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", lista.name,
-           *codec, "-movflags", "+faststart",
+           *filtro, *codec, "-movflags", "+faststart",
            "-progress", "pipe:1", "-nostats", str(salida)]
     return cmd, lista.name, salida, dur_total, copia
 
@@ -489,6 +524,31 @@ class Handler(BaseHTTPRequestHandler):
             por_cloudflare = self.headers.get("Host", "").startswith(HOST_CLOUDFLARE)
             return self._json({"por_cloudflare": por_cloudflare,
                                "directas": vias_directas()})
+        if partes.path == "/api/vista":
+            # Un cuadro con la geometría aplicada, para ajustar OFFX sin tener
+            # que exportar media hora a ciegas.
+            try:
+                q = parse_qs(partes.query)
+                ruta = clip_valido(q["clip"][0])
+                g = leer_geom({"geom": {k: v[0] for k, v in q.items()
+                                        if k in GEOM_DEFAULT}})
+                seg = max(0.0, float(q.get("seg", ["10"])[0]))
+                filtro = cadena_geometria(g) if g["activa"] else "null"
+                jpg = subprocess.run(
+                    ["ffmpeg", "-v", "error", "-ss", str(seg), "-i", str(ruta),
+                     "-vf", f"{filtro},scale=640:-1", "-frames:v", "1",
+                     "-f", "image2", "-c:v", "mjpeg", "-"],
+                    capture_output=True, timeout=60).stdout
+                if not jpg:
+                    raise ValueError("no se pudo generar el cuadro")
+                self.send_response(200)
+                self.send_header("Content-Type", "image/jpeg")
+                self.send_header("Content-Length", str(len(jpg)))
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return self.wfile.write(jpg)
+            except Exception as e:
+                return self._json({"error": str(e)}, 400)
         if partes.path == "/api/trabajos":
             with lock_trabajos:
                 return self._json(trabajos)
@@ -510,8 +570,8 @@ class Handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(cuerpo)
         elif self.path == "/api/clips":
-            clips, sep = listar_clips()
-            self._json({"clips": clips, "sep": sep,
+            clips, sep, geom = listar_clips()
+            self._json({"clips": clips, "sep": sep, "geom": geom,
                         "proxima": proxima_salida().name})
         elif self.path == "/api/estado":
             with lock:
@@ -537,12 +597,14 @@ class Handler(BaseHTTPRequestHandler):
             body = self._leer_body()
             if self.path == "/api/orden":
                 ORDEN_JSON.write_text(json.dumps(
-                    {"orden": body["orden"], "sep": body.get("sep", SEP_DEFAULT)},
+                    {"orden": body["orden"], "sep": body.get("sep", SEP_DEFAULT),
+                     "geom": leer_geom(body)},
                     indent=2))
                 self._json({"ok": True})
             elif self.path == "/api/comando":
                 cmd, _, salida, dur, copia = armar_export(
-                    body["orden"], float(body.get("sep", SEP_DEFAULT)), body["modo"])
+                    body["orden"], float(body.get("sep", SEP_DEFAULT)),
+                    body["modo"], leer_geom(body))
                 self._json({"comando": " ".join(cmd), "salida": salida.name,
                             "dur": round(dur, 1), "copia": copia})
             elif self.path == "/api/exportar":
@@ -550,7 +612,8 @@ class Handler(BaseHTTPRequestHandler):
                     if estado["estado"] == "corriendo":
                         return self._json({"error": "ya hay un export corriendo"}, 409)
                 cmd, _, salida, dur, copia = armar_export(
-                    body["orden"], float(body.get("sep", SEP_DEFAULT)), body["modo"])
+                    body["orden"], float(body.get("sep", SEP_DEFAULT)),
+                    body["modo"], leer_geom(body))
                 threading.Thread(target=correr_export,
                                  args=(cmd, salida, dur, body["modo"]),
                                  daemon=True).start()
