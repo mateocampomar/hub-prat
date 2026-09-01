@@ -100,6 +100,7 @@
   #btnPrueba { background: var(--ambar); }
   #btnFinal { background: var(--acento); }
   #btnComando { background: transparent; color: var(--tenue); border: 1px solid var(--borde); }
+  #btnCancelar { background: transparent; color: var(--error); border: 1px solid var(--error); }
   pre {
     background: #10131a; border: 1px solid var(--borde); border-radius: 8px;
     padding: 10px; font-size: 11.5px; line-height: 1.5; white-space: pre-wrap;
@@ -120,7 +121,8 @@
   .salida .datos { flex: 1; min-width: 0; }
   .salida .datos b { display: block; font-size: 14px; overflow: hidden;
                      text-overflow: ellipsis; white-space: nowrap; }
-  .salida .datos span { color: var(--tenue); font-size: 12.5px; }
+  .salida .datos span { color: var(--tenue); font-size: 12px; display: block;
+                        overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .salida .etq {
     font-size: 11px; padding: 1px 7px; border-radius: 5px; margin-left: 7px;
     background: var(--borde); color: var(--tenue); vertical-align: 1px;
@@ -130,6 +132,15 @@
     border-radius: 7px; padding: 6px 12px; font-size: 12.5px; font-weight: 600;
     flex-shrink: 0;
   }
+  /* El de borrar va apagado a propósito: no debe competir con Descargar,
+     que es la acción de todos los días. */
+  .salida button.borrar {
+    background: transparent; color: var(--tenue); border: 1px solid var(--borde);
+    border-radius: 7px; width: 27px; height: 27px; padding: 0; flex-shrink: 0;
+    font-size: 15px; line-height: 1;
+  }
+  .salida button.borrar:hover { color: var(--error); border-color: var(--error); }
+  .salida.borrando { opacity: .4; pointer-events: none; }
   #zona {
     border: 1.5px dashed var(--borde); border-radius: 10px; padding: 13px;
     text-align: center; color: var(--tenue); font-size: 13px; cursor: pointer;
@@ -183,6 +194,7 @@
     <button id="btnComando">Comando</button>
     <button id="btnPrueba">Prueba (5 s/clip)</button>
     <button id="btnFinal">Exportar final</button>
+    <button id="btnCancelar" hidden>Cancelar export</button>
   </div>
 </header>
 
@@ -225,7 +237,7 @@
   </section>
 
   <section class="caja">
-    <h2>Videos generados <span id="avisoBajada"></span></h2>
+    <h2>Videos generados <span id="espacio"></span><span id="avisoBajada"></span></h2>
     <div class="cuerpo"><div id="salidas2"></div></div>
   </section>
 </main>
@@ -357,9 +369,15 @@ async function seguir() {
   const r = await fetch('/api/estado');
   const e = await r.json();
   $('avance').style.width = (e.progreso * 100).toFixed(1) + '%';
+  $('btnCancelar').hidden = e.estado !== 'corriendo';
   if (e.estado === 'corriendo') {
     $('msg').innerHTML = `<span class="info">Exportando ${e.salida}… ${(e.progreso*100).toFixed(0)} %</span>`;
     setTimeout(seguir, 1000);
+  } else if (e.estado === 'idle') {
+    corriendo = false;
+    $('barra').style.display = 'none';
+    $('msg').innerHTML = '<span class="info">Export cancelado</span>';
+    cargarSalidas();
   } else if (e.estado === 'ok') {
     corriendo = false;
     $('msg').innerHTML = `<span class="ok">Listo: ${e.salida}</span>`;
@@ -398,11 +416,33 @@ function fecha(ts) {
          d.toLocaleTimeString('es-UY', {hour:'2-digit', minute:'2-digit', hour12:false});
 }
 
+async function borrarSalida(s, div) {
+  // Borra del disco y no hay papelera: se confirma con nombre y peso a la vista.
+  if (!confirm(`¿Borrar ${s.nombre} del disco?\n\n` +
+               `${fmt(s.dur)} · ${gb(s.bytes)}\n\n` +
+               `Se elimina de la Mac mini y no va a la papelera.`)) return;
+  div.classList.add('borrando');
+  try {
+    const r = await fetch('/api/borrar?archivo=' + encodeURIComponent(s.nombre),
+                          { method: 'POST' });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    $('msg').innerHTML = `<span class="info">Borrado ${s.nombre} · ` +
+                         `${gb(d.liberado)} liberados</span>`;
+  } catch (e) {
+    div.classList.remove('borrando');
+    $('msg').innerHTML = `<span class="err">No se pudo borrar: ${e.message}</span>`;
+  }
+  cargarSalidas();
+}
+
 async function cargarSalidas() {
   let d;
   try { d = await (await fetch('/api/renders')).json(); } catch (_) { return; }
   const cont = $('salidas2');
   cont.innerHTML = '';
+  if (d.espacio) $('espacio').textContent =
+    `${gb(d.espacio.ocupado)} en uso · ${gb(d.espacio.libre)} libres`;
   if (!d.salidas.length) {
     cont.innerHTML = '<span style="color:var(--tenue);font-size:13.5px">' +
                      'Todavía no hay videos generados.</span>';
@@ -418,7 +458,9 @@ async function cargarSalidas() {
         <b>${s.nombre}${s.tipo === 'prueba' ? '<span class="etq">prueba</span>' : ''}</b>
         <span>${fmt(s.dur)} · ${gb(s.bytes)} · ${fecha(s.mtime)}</span>
       </div>
-      <a class="bajar" href="${url}" download>Descargar</a>`;
+      <a class="bajar" href="${url}" download>Descargar</a>
+      <button class="borrar" title="Borrar del disco">\u00d7</button>`;
+    div.querySelector('.borrar').onclick = () => borrarSalida(s, div);
     cont.appendChild(div);
   }
 }
@@ -614,6 +656,10 @@ $('vistaClip').onchange = refrescarVista;
 $('btnComando').onclick = () => verComando('final');
 $('btnPrueba').onclick = () => exportar('prueba');
 $('btnFinal').onclick = () => exportar('final');
+$('btnCancelar').onclick = async () => {
+  // El parcial se borra del lado del servidor: son gigas que no sirven.
+  await fetch('/api/cancelar-export', { method: 'POST' });
+};
 cargar();
 cargarSalidas();
 chequearVia();

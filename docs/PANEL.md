@@ -126,6 +126,27 @@ se transmite por bloques — cargar 2 GB en memoria voltearía el panel.
 Para bajar conviene la vía directa: son gigas, y por Cloudflare dan la vuelta
 por el datacenter.
 
+El header de la caja muestra **cuánto ocupan las salidas y cuánto queda libre**
+en el disco.
+
+### Borrar
+
+El botón **×** de cada fila borra el archivo **del disco, no a la papelera**:
+el espacio se libera en el momento. Pide confirmación mostrando nombre, duración
+y peso, porque no hay vuelta atrás.
+
+Solo se pueden borrar archivos de `3-render/` y `4-pruebas/` — un nombre de
+`2-normalizados/` o cualquier ruta con `..` se rechaza, así que el material
+fuente no se toca desde acá. El servidor además rechaza borrar el archivo que
+un export esté escribiendo en ese momento: dejaría a ffmpeg escribiendo en un
+archivo fantasma.
+
+### Cancelar un export
+
+Con la geometría activada un render tarda unos 9 minutos, así que mientras
+corre aparece **Cancelar export** en el header. Corta el ffmpeg y borra el
+archivo a medio escribir, que no sirve para nada y ocupa gigas.
+
 ## Diseño
 
 El panel ocupa la pantalla completa y **no scrollea**: tres columnas —orden de

@@ -69,6 +69,7 @@ estado = {
     "comando": None,
 }
 lock = threading.Lock()
+proceso_export = {"p": None}
 
 # Normalizaciones en curso, una entrada por archivo subido.
 trabajos = {}
@@ -353,6 +354,13 @@ def listar_renders():
     return salidas
 
 
+def espacio():
+    """Cuánto ocupan las salidas y cuánto queda libre en el disco."""
+    usa = sum(s["bytes"] for s in listar_renders())
+    libre = shutil.disk_usage(RENDER).free
+    return {"ocupado": usa, "libre": libre}
+
+
 def proxima_salida():
     ns = []
     for f in RENDER.glob("PRAT-TV-FINAL*.mp4"):
@@ -445,6 +453,8 @@ def correr_export(cmd, salida, dur_total, modo):
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE,
                                 stderr=subprocess.PIPE, text=True)
+        with lock:
+            proceso_export["p"] = proc
         for linea in proc.stdout:
             m = re.match(r"out_time_ms=(\d+)", linea)
             if m and dur_total > 0:
@@ -453,7 +463,13 @@ def correr_export(cmd, salida, dur_total, modo):
         proc.wait()
         err = proc.stderr.read()[-3000:]
         with lock:
-            if proc.returncode == 0:
+            cancelado = proceso_export.pop("cancelado", False)
+            proceso_export["p"] = None
+            if cancelado:
+                # El archivo a medio escribir no sirve para nada y ocupa GB.
+                salida.unlink(missing_ok=True)
+                estado.update(estado="idle", progreso=0.0, log="")
+            elif proc.returncode == 0:
                 estado.update(estado="ok", progreso=1.0, log=err)
             else:
                 estado.update(estado="error", log=err)
@@ -633,7 +649,7 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 return self._json({"error": str(e)}, 400)
         if partes.path == "/api/renders":
-            return self._json({"salidas": listar_renders()})
+            return self._json({"salidas": listar_renders(), "espacio": espacio()})
         if partes.path == "/api/miniatura":
             # Un cuadro del render: de un vistazo se distingue el que tiene la
             # geometría de la TV del que salió 16:9 plano.
@@ -697,6 +713,28 @@ class Handler(BaseHTTPRequestHandler):
             # La subida manda binario crudo, no JSON: va antes de leer el body.
             if partes.path == "/api/subir":
                 return self._json(self._recibir_trozo(parse_qs(partes.query)))
+            if partes.path == "/api/cancelar-export":
+                with lock:
+                    proc = proceso_export.get("p")
+                    if not proc or estado["estado"] != "corriendo":
+                        return self._json({"error": "no hay export corriendo"}, 409)
+                    proceso_export["cancelado"] = True
+                    proc.terminate()
+                return self._json({"ok": True})
+            if partes.path == "/api/borrar":
+                nombre = parse_qs(partes.query)["archivo"][0]
+                ruta = salida_valida(nombre)
+                with lock:
+                    # Si un export lo está escribiendo justo ahora, borrarlo
+                    # deja el ffmpeg escribiendo en un archivo fantasma.
+                    if (estado["estado"] == "corriendo"
+                            and estado["salida"] == ruta.name):
+                        return self._json(
+                            {"error": "ese archivo se está exportando ahora"}, 409)
+                liberado = ruta.stat().st_size
+                ruta.unlink()
+                return self._json({"ok": True, "liberado": liberado,
+                                   "espacio": espacio()})
             if partes.path == "/api/cancelar":
                 nombre = nombre_seguro(parse_qs(partes.query)["nombre"][0])
                 (PARCIALES / (nombre + ".part")).unlink(missing_ok=True)
