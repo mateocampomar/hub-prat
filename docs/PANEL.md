@@ -1,7 +1,32 @@
 # Panel de render — acceso y despliegue
 
-El panel corre en la **Mac mini** y se accede desde cualquier lado en
-**https://hub-prat.skatoramps.com** (HTTP Basic: usuario y clave en `.env`).
+El panel corre en la **Mac mini**. Hay dos vías de acceso, y para subir videos
+la diferencia importa:
+
+| Vía | URL | Cuándo |
+|---|---|---|
+| **Directa (Tailscale)** | `http://100.64.227.78:8787` | **Para subir o bajar videos.** El archivo va derecho a la Mac mini. |
+| Cloudflare | `https://hub-prat.skatoramps.com` | Desde cualquier lado, sin Tailscale. Cómoda para ordenar y exportar. |
+
+Las dos piden la misma contraseña (HTTP Basic, credenciales en `.env`).
+
+## Por qué la vía directa para los archivos
+
+Por Cloudflare cada byte sube al datacenter más cercano (São Paulo) y baja de
+vuelta por el túnel hasta esta misma Mac mini. Si el navegador está en la LAN,
+el archivo hace un viaje internacional para recorrer tres metros. Medido con un
+trozo de 8 MB: **1,24 MB/s por Cloudflare contra 4,00 MB/s por Tailscale**, y la
+diferencia crece desde otra máquina de la red, donde Tailscale conecta punto a
+punto.
+
+El panel lo detecta solo: si entrás por el dominio y hay una vía directa
+disponible, muestra un aviso arriba con el link.
+
+Por seguridad el panel escucha en todas las interfaces pero **solo acepta
+conexiones desde loopback, Tailscale (100.64.0.0/10) y redes LAN privadas** —
+una IP pública recibe 403 antes de que se le pida la contraseña. El tráfico de
+Tailscale va cifrado por WireGuard, así que la contraseña no viaja en claro
+pese a ser HTTP.
 
 ## Piezas
 
@@ -40,6 +65,9 @@ los mismos streams.
 Extensiones aceptadas: `.mp4 .mov .mkv .m4v .avi .webm`. El nombre se sanea
 (se queda solo el basename, sin acentos ni caracteres raros) y nunca pisa un
 archivo existente: agrega `-2`, `-3`, etc.
+
+Cada archivo tiene un botón **cancelar** mientras sube: corta el trozo en vuelo
+y borra en el servidor lo que se había subido.
 
 Si un trozo falla, se reintenta hasta 4 veces, y antes de cada reintento el
 cliente le pregunta al servidor cuánto recibió realmente

@@ -72,8 +72,21 @@
   .subida { padding: 9px 12px; border: 1px solid var(--borde); border-radius: 9px;
             margin-top: 8px; background: #1c202a; font-size: 13.5px; }
   .subida .cab { display: flex; gap: 10px; align-items: baseline; }
-  .subida .cab b { flex: 1; }
-  .subida .cab span { color: var(--tenue); font-size: 12.5px; }
+  /* min-width:0 deja que el nombre largo se recorte en vez de empujar el resto. */
+  .subida .cab b { flex: 1; min-width: 0; overflow: hidden;
+                   text-overflow: ellipsis; white-space: nowrap; }
+  .subida .cab span { color: var(--tenue); font-size: 12.5px;
+                      white-space: nowrap; flex-shrink: 0; }
+  .subida .cab button {
+    background: transparent; color: var(--tenue); border: 1px solid var(--borde);
+    border-radius: 6px; padding: 2px 9px; font-size: 12px; font-weight: 600;
+  }
+  .subida .cab button:hover { color: var(--error); border-color: var(--error); }
+  #aviso {
+    background: #1f2436; border: 1px solid #33507d; border-radius: 10px;
+    padding: 12px 15px; margin-bottom: 14px; font-size: 13.5px; display: none;
+  }
+  #aviso a { font-weight: 600; }
   .subida .pista { height: 6px; background: #10131a; border-radius: 4px; overflow: hidden; margin-top: 7px; }
   .subida .pista div { height: 100%; width: 0; background: var(--acento); transition: width .3s; }
   .subida.lista .pista div { background: var(--ok); }
@@ -84,6 +97,8 @@
 </head>
 <body>
 <h1>PRAT — Panel de render <small id="proxima"></small></h1>
+
+<div id="aviso"></div>
 
 <div class="caja">
   <div id="zona">Arrastrá videos acá o <b>elegí archivos</b><br>
@@ -209,6 +224,22 @@ async function seguir() {
   }
 }
 
+// Entrar por el dominio manda cada byte al datacenter de Cloudflare y lo trae
+// de vuelta. Por Tailscale o la LAN el archivo va derecho a la Mac mini.
+async function chequearVia() {
+  try {
+    const d = await (await fetch('/api/acceso')).json();
+    if (!d.por_cloudflare || !d.directas.length) return;
+    const v = d.directas[0];
+    $('aviso').style.display = 'block';
+    $('aviso').innerHTML =
+      `Estás entrando por Cloudflare: para subir videos, cada byte viaja al ` +
+      `datacenter y vuelve. Si tenés ${v.via} andando, ` +
+      `<a href="${v.url}">abrí el panel por la vía directa</a> y las subidas ` +
+      `van derecho a la Mac mini.`;
+  } catch (_) {}
+}
+
 async function cargar() {
   const d = await (await fetch('/api/clips')).json();
   const previos = Object.fromEntries(clips.map(c => [c.nombre, c.activo]));
@@ -224,6 +255,8 @@ async function cargar() {
 const TROZO = 8 * 1024 * 1024;
 const REINTENTOS = 4;
 const filas = {};        // clave -> elemento de la lista de subidas
+const xhrs = {};         // clave -> request en vuelo, para poder abortarlo
+const cancelados = new Set();
 let cola = Promise.resolve();
 
 const mb = b => (b / 1048576).toFixed(0) + ' MB';
@@ -232,9 +265,10 @@ function fila(clave) {
   if (filas[clave]) return filas[clave];
   const div = document.createElement('div');
   div.className = 'subida';
-  div.innerHTML = `<div class="cab"><b></b><span></span></div>
+  div.innerHTML = `<div class="cab"><b></b><span></span><button>cancelar</button></div>
                    <div class="pista"><div></div></div>`;
   div.querySelector('b').textContent = clave;
+  div.querySelector('button').onclick = () => cancelar(clave);
   $('subidas').appendChild(div);
   return (filas[clave] = div);
 }
@@ -244,12 +278,26 @@ function pintar(clave, texto, frac, clase) {
   d.querySelector('span').textContent = texto;
   d.querySelector('.pista div').style.width = ((frac || 0) * 100).toFixed(1) + '%';
   d.className = 'subida' + (clase ? ' ' + clase : '');
+  // El botón solo tiene sentido mientras la subida sigue viva.
+  d.querySelector('button').style.display = clase ? 'none' : '';
+}
+
+async function cancelar(clave) {
+  cancelados.add(clave);
+  if (xhrs[clave]) xhrs[clave].abort();     // corta el trozo en vuelo
+  try {
+    await fetch('/api/cancelar?nombre=' + encodeURIComponent(clave),
+                { method: 'POST' });        // borra lo subido hasta ahí
+  } catch (_) {}
+  pintar(clave, 'cancelada', 0, 'mal');
 }
 
 // fetch no informa el avance de la subida; XHR sí, vía upload.onprogress.
-function enviarTrozo(url, blob, alAvanzar) {
+function enviarTrozo(clave, url, blob, alAvanzar) {
   return new Promise((resolve, reject) => {
     const x = new XMLHttpRequest();
+    xhrs[clave] = x;
+    x.onabort = () => reject(new Error('cancelada'));
     x.open('POST', url);
     x.setRequestHeader('Content-Type', 'application/octet-stream');
     x.upload.onprogress = e => { if (e.lengthComputable) alAvanzar(e.loaded); };
@@ -275,6 +323,7 @@ async function recibido(nombre) {
 
 async function subir(archivo) {
   const clave = archivo.name;
+  cancelados.delete(clave);
   // La fila aparece ya mismo: el primer trozo tarda y sin esto la pantalla
   // queda muerta y parece que no pasa nada.
   pintar(clave, `en cola · ${mb(archivo.size)}`, 0);
@@ -290,6 +339,7 @@ async function subir(archivo) {
     (offset + parcial) / archivo.size);
 
   while (offset < archivo.size) {
+    if (cancelados.has(clave)) return;
     let d = null;
     for (let intento = 1; intento <= REINTENTOS && !d; intento++) {
       // Dentro del reintento: si el offset se re-sincronizó, el trozo y la URL
@@ -300,9 +350,10 @@ async function subir(archivo) {
                   `&offset=${offset}&final=${ultimo ? 1 : 0}`;
       try {
         avance(0);
-        d = await enviarTrozo(url, archivo.slice(offset, fin), avance);
+        d = await enviarTrozo(clave, url, archivo.slice(offset, fin), avance);
         offset = fin;
       } catch (e) {
+        if (cancelados.has(clave)) return;   // no es un fallo, lo paraste vos
         if (intento === REINTENTOS) {
           pintar(clave, 'falló: ' + e.message, offset / archivo.size, 'mal');
           return;
@@ -314,6 +365,7 @@ async function subir(archivo) {
         offset = await recibido(clave);
       }
     }
+    delete xhrs[clave];
     if (d.completo) {
       pintar(clave, 'subido, normalizando…', 1);
       // El servidor puede haberlo renombrado para no pisar otro archivo.
@@ -363,6 +415,7 @@ $('btnComando').onclick = () => verComando('final');
 $('btnPrueba').onclick = () => exportar('prueba');
 $('btnFinal').onclick = () => exportar('final');
 cargar();
+chequearVia();
 </script>
 </body>
 </html>

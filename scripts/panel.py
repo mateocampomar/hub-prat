@@ -9,6 +9,7 @@ Uso:  python3 scripts/panel.py   →  http://localhost:8787
 
 import base64
 import hmac
+import ipaddress
 import json
 import re
 import secrets
@@ -22,6 +23,17 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 PUERTO = 8787
+
+# Escucha en todas las interfaces para que se pueda entrar directo por Tailscale
+# o por la LAN, sin dar la vuelta por Cloudflare. Solo se aceptan conexiones
+# desde estas redes; además todo pide contraseña.
+ESCUCHA = "0.0.0.0"
+REDES_OK = [ipaddress.ip_network(r) for r in (
+    "127.0.0.0/8",      # local, y por acá entra el túnel de Cloudflare
+    "100.64.0.0/10",    # Tailscale
+    "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16",   # LAN
+)]
+HOST_CLOUDFLARE = "hub-prat.skatoramps.com"
 REPO = Path(__file__).resolve().parent.parent
 FUENTES = REPO / "1-fuentes"
 NORMALIZADOS = REPO / "2-normalizados"
@@ -97,6 +109,36 @@ def clip_valido(nombre):
     if ruta.parent != NORMALIZADOS.resolve() or not ruta.is_file():
         raise ValueError(f"No existe el clip {nombre}")
     return ruta
+
+
+def red_permitida(ip):
+    try:
+        dir_ip = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    return any(dir_ip in red for red in REDES_OK)
+
+
+def vias_directas():
+    """URLs por las que se llega al panel sin pasar por Cloudflare.
+
+    Subir un archivo por el túnel lo manda al datacenter de Cloudflare y lo
+    trae de vuelta; por Tailscale o la LAN va derecho a esta máquina.
+    """
+    vias = []
+    # launchd no hereda el PATH de la shell, así que el binario se busca por
+    # ruta absoluta además de por nombre.
+    for binario in ("tailscale", "/usr/local/bin/tailscale",
+                    "/Applications/Tailscale.app/Contents/MacOS/Tailscale"):
+        try:
+            ip = subprocess.run([binario, "ip", "-4"], capture_output=True,
+                                text=True, timeout=5).stdout.strip().splitlines()
+        except Exception:
+            continue
+        if ip:
+            vias.append({"url": f"http://{ip[0]}:{PUERTO}", "via": "Tailscale"})
+            break
+    return vias
 
 
 def nombre_seguro(nombre):
@@ -355,6 +397,13 @@ def correr_export(cmd, salida, dur_total, modo):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _red_ok(self):
+        if red_permitida(self.client_address[0]):
+            return True
+        self.send_response(403)
+        self.end_headers()
+        return False
+
     def _autorizado(self):
         """HTTP Basic. Compara con hmac para no filtrar por tiempo de respuesta."""
         cabecera = self.headers.get("Authorization", "")
@@ -432,9 +481,14 @@ class Handler(BaseHTTPRequestHandler):
         return {"ok": True, "completo": True, "nombre": destino.name}
 
     def do_GET(self):
-        if not self._autorizado():
+        if not self._red_ok() or not self._autorizado():
             return
         partes = urlparse(self.path)
+        if partes.path == "/api/acceso":
+            # El cliente usa esto para avisar que hay una vía más rápida.
+            por_cloudflare = self.headers.get("Host", "").startswith(HOST_CLOUDFLARE)
+            return self._json({"por_cloudflare": por_cloudflare,
+                               "directas": vias_directas()})
         if partes.path == "/api/trabajos":
             with lock_trabajos:
                 return self._json(trabajos)
@@ -466,13 +520,19 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "no existe"}, 404)
 
     def do_POST(self):
-        if not self._autorizado():
+        if not self._red_ok() or not self._autorizado():
             return
         partes = urlparse(self.path)
         try:
             # La subida manda binario crudo, no JSON: va antes de leer el body.
             if partes.path == "/api/subir":
                 return self._json(self._recibir_trozo(parse_qs(partes.query)))
+            if partes.path == "/api/cancelar":
+                nombre = nombre_seguro(parse_qs(partes.query)["nombre"][0])
+                (PARCIALES / (nombre + ".part")).unlink(missing_ok=True)
+                with lock_trabajos:
+                    trabajos.pop(nombre, None)
+                return self._json({"ok": True})
 
             body = self._leer_body()
             if self.path == "/api/orden":
@@ -513,4 +573,6 @@ class Handler(BaseHTTPRequestHandler):
 
 if __name__ == "__main__":
     print(f"Panel PRAT en http://localhost:{PUERTO}")
-    ThreadingHTTPServer(("127.0.0.1", PUERTO), Handler).serve_forever()
+    for v in vias_directas():
+        print(f"  vía directa ({v['via']}): {v['url']}")
+    ThreadingHTTPServer((ESCUCHA, PUERTO), Handler).serve_forever()
