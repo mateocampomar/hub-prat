@@ -21,10 +21,11 @@ router).
 
 Se arrastran al panel (o se eligen con el botón). El flujo es automático:
 
-1. El archivo se sube **en trozos de 40 MB**. Cloudflare rechaza cualquier
+1. El archivo se sube **en trozos de 8 MB**. Cloudflare rechaza cualquier
    request de más de 100 MB, así que un clip de 1 GB no entra de una: el
    navegador lo parte y el servidor lo va agregando a un parcial en
-   `4-pruebas/.subidas/`.
+   `4-pruebas/.subidas/`. Los trozos son chicos a propósito: dan progreso fino
+   y un reintento cuesta poco.
 2. Cuando llega el último trozo, el archivo pasa a `1-fuentes/`.
 3. Arranca sola la normalización a `2-normalizados/<nombre>-CFR.mp4`, con
    progreso en la misma fila.
@@ -39,6 +40,12 @@ los mismos streams.
 Extensiones aceptadas: `.mp4 .mov .mkv .m4v .avi .webm`. El nombre se sanea
 (se queda solo el basename, sin acentos ni caracteres raros) y nunca pisa un
 archivo existente: agrega `-2`, `-3`, etc.
+
+Si un trozo falla, se reintenta hasta 4 veces, y antes de cada reintento el
+cliente le pregunta al servidor cuánto recibió realmente
+(`GET /api/subida?nombre=…`) para retomar desde ahí. Por eso una subida que se
+cortó —conexión caída, pestaña cerrada— se puede retomar: al volver a elegir el
+mismo archivo sigue desde donde iba en lugar de empezar de cero.
 
 ## Operación
 

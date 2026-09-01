@@ -434,9 +434,20 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if not self._autorizado():
             return
-        if self.path == "/api/trabajos":
+        partes = urlparse(self.path)
+        if partes.path == "/api/trabajos":
             with lock_trabajos:
                 return self._json(trabajos)
+        if partes.path == "/api/subida":
+            # Cuánto se recibió ya de este archivo, para poder reanudar una
+            # subida que se cortó en vez de empezarla de cero.
+            try:
+                nombre = nombre_seguro(parse_qs(partes.query)["nombre"][0])
+                parcial = PARCIALES / (nombre + ".part")
+                recibido = parcial.stat().st_size if parcial.exists() else 0
+                return self._json({"recibido": recibido})
+            except Exception as e:
+                return self._json({"error": str(e)}, 400)
         if self.path == "/":
             cuerpo = PANEL_HTML.read_bytes()
             self.send_response(200)
@@ -493,8 +504,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.close_connection = True
             self._json({"error": str(e)}, 500)
 
-    def log_message(self, *a):
-        pass
+    def log_message(self, formato, *args):
+        # Los sondeos de progreso son constantes y tapan todo lo demás.
+        if "/api/estado" in args[0] or "/api/trabajos" in args[0]:
+            return
+        super().log_message(formato, *args)
 
 
 if __name__ == "__main__":
