@@ -11,23 +11,62 @@
     --ok: #3ecf8e; --error: #ff6b6b; --ambar: #ffb454;
   }
   * { box-sizing: border-box; margin: 0; }
+
+  /* Todo entra en una pantalla: la página no scrollea, scrollean las columnas.
+     min-height:0 es lo que deja que un hijo de grid/flex se encoja en vez de
+     empujar el alto; sin eso el scroll interno no aparece nunca. */
+  html, body { height: 100%; }
   body {
     background: var(--fondo); color: var(--texto);
-    font: 15px/1.5 -apple-system, "SF Pro Text", Helvetica, Arial, sans-serif;
-    max-width: 780px; margin: 0 auto; padding: 32px 20px 60px;
+    font: 14px/1.5 -apple-system, "SF Pro Text", Helvetica, Arial, sans-serif;
+    /* flex y no grid-template-rows: el aviso se oculta con display:none y
+       entonces no genera fila, así que el 1fr se lo terminaba llevando el
+       footer y main quedaba con su altura natural. */
+    display: flex; flex-direction: column;
+    gap: 12px; padding: 14px 18px; overflow: hidden;
   }
-  h1 { font-size: 20px; letter-spacing: .3px; }
-  h1 small { color: var(--tenue); font-weight: 400; margin-left: 10px; font-size: 13px; }
+
+  header { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  h1 { font-size: 18px; letter-spacing: .3px; }
+  h1 small { color: var(--tenue); font-weight: 400; margin-left: 8px; font-size: 12px; }
+  .marcador { display: flex; align-items: baseline; gap: 14px; margin-left: auto; }
+  .marcador span { color: var(--tenue); font-size: 12.5px; }
+  .marcador b { color: var(--texto); font-size: 17px; margin-left: 4px; }
+  .acciones { display: flex; gap: 9px; }
+
+  main {
+    display: grid; gap: 12px; min-height: 0; flex: 1;
+    grid-template-columns: minmax(300px, 1.05fr) minmax(320px, 1.15fr) minmax(300px, 1fr);
+    /* sin esto la fila mide lo que mide el contenido y las cajas no llegan
+       hasta abajo, dejando un hueco muerto */
+    grid-template-rows: minmax(0, 1fr);
+  }
   .caja {
-    background: var(--panel); border: 1px solid var(--borde);
-    border-radius: 12px; padding: 16px; margin-top: 18px;
+    background: var(--panel); border: 1px solid var(--borde); border-radius: 12px;
+    display: flex; flex-direction: column; min-height: 0; overflow: hidden;
   }
+  .caja h2 {
+    font-size: 13px; font-weight: 700; letter-spacing: .3px;
+    padding: 11px 14px; border-bottom: 1px solid var(--borde);
+    display: flex; align-items: center; gap: 10px; flex-shrink: 0;
+  }
+  .caja h2 span { color: var(--tenue); font-weight: 400; font-size: 11.5px; }
+  .cuerpo { flex: 1; min-height: 0; overflow-y: auto; padding: 12px 14px; }
+  .pie { border-top: 1px solid var(--borde); padding: 9px 14px; flex-shrink: 0; }
+
+  footer { min-height: 22px; }
+
   ul { list-style: none; }
   li.clip {
-    display: flex; align-items: center; gap: 12px;
-    padding: 10px 12px; border: 1px solid var(--borde); border-radius: 9px;
-    margin-bottom: 8px; background: #1c202a; cursor: grab; user-select: none;
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border: 1px solid var(--borde); border-radius: 9px;
+    margin-bottom: 7px; background: #1c202a; cursor: grab; user-select: none;
   }
+  li.clip .nombre { font-size: 13.5px; min-width: 0; overflow: hidden;
+                    text-overflow: ellipsis; white-space: nowrap; }
+  /* En columna angosta la metadata completa no entra: se corta el nombre y
+     los datos quedan en una línea propia. */
+  li.clip .meta { font-size: 11.5px; white-space: nowrap; }
   li.clip.arrastrando { opacity: .4; }
   li.clip .agarre { color: var(--tenue); font-size: 17px; }
   li.clip .num {
@@ -49,14 +88,12 @@
   #geomCtrl { transition: opacity .15s; }
   #geomCtrl.off { opacity: .35; pointer-events: none; }
   #vista {
-    display: block; width: 100%; max-width: 520px; margin: 14px auto 0;
-    border: 1px solid var(--borde); border-radius: 8px; background: #000;
+    display: block; width: 100%; margin: 11px 0; background: #000;
+    border: 1px solid var(--borde); border-radius: 8px;
   }
   #vista.off { display: none; }
-  .total { margin-left: auto; font-size: 13.5px; color: var(--tenue); }
-  .total b { color: var(--texto); font-size: 15px; }
   button {
-    border: 0; border-radius: 8px; padding: 10px 18px; font-size: 14px;
+    border: 0; border-radius: 8px; padding: 8px 15px; font-size: 13px;
     font-weight: 600; cursor: pointer; color: #0b0d11;
   }
   button:disabled { opacity: .4; cursor: default; }
@@ -65,18 +102,19 @@
   #btnComando { background: transparent; color: var(--tenue); border: 1px solid var(--borde); }
   pre {
     background: #10131a; border: 1px solid var(--borde); border-radius: 8px;
-    padding: 12px; font-size: 12px; line-height: 1.55; white-space: pre-wrap;
-    word-break: break-all; color: #b9c2d4; margin-top: 12px; display: none;
+    padding: 10px; font-size: 11.5px; line-height: 1.5; white-space: pre-wrap;
+    word-break: break-all; color: #b9c2d4; margin-top: 8px; display: none;
+    max-height: 108px; overflow-y: auto;
   }
   .barra { height: 10px; background: #10131a; border-radius: 6px; overflow: hidden; margin-top: 12px; display: none; }
   .barra div { height: 100%; width: 0; background: var(--acento); transition: width .5s; }
   .salida {
-    display: flex; gap: 13px; align-items: center;
-    padding: 10px 12px; border: 1px solid var(--borde); border-radius: 9px;
-    margin-bottom: 8px; background: #1c202a;
+    display: flex; gap: 11px; align-items: center;
+    padding: 8px 10px; border: 1px solid var(--borde); border-radius: 9px;
+    margin-bottom: 7px; background: #1c202a;
   }
   .salida img {
-    width: 104px; height: 59px; object-fit: cover; flex-shrink: 0;
+    width: 82px; height: 47px; object-fit: cover; flex-shrink: 0;
     border-radius: 5px; background: #000; border: 1px solid var(--borde);
   }
   .salida .datos { flex: 1; min-width: 0; }
@@ -89,12 +127,12 @@
   }
   .salida a.bajar {
     background: var(--acento); color: #0b0d11; text-decoration: none;
-    border-radius: 8px; padding: 8px 15px; font-size: 13.5px; font-weight: 600;
+    border-radius: 7px; padding: 6px 12px; font-size: 12.5px; font-weight: 600;
     flex-shrink: 0;
   }
   #zona {
-    border: 1.5px dashed var(--borde); border-radius: 10px; padding: 22px;
-    text-align: center; color: var(--tenue); font-size: 14px; cursor: pointer;
+    border: 1.5px dashed var(--borde); border-radius: 10px; padding: 13px;
+    text-align: center; color: var(--tenue); font-size: 13px; cursor: pointer;
     transition: border-color .15s, background .15s;
   }
   #zona:hover, #zona.encima { border-color: var(--acento); background: #1c202a; color: var(--texto); }
@@ -114,78 +152,89 @@
   .subida .cab button:hover { color: var(--error); border-color: var(--error); }
   #aviso {
     background: #1f2436; border: 1px solid #33507d; border-radius: 10px;
-    padding: 12px 15px; margin-bottom: 14px; font-size: 13.5px; display: none;
+    padding: 9px 13px; font-size: 12.5px; display: none;
   }
   #aviso a { font-weight: 600; }
   .subida .pista { height: 6px; background: #10131a; border-radius: 4px; overflow: hidden; margin-top: 7px; }
   .subida .pista div { height: 100%; width: 0; background: var(--acento); transition: width .3s; }
   .subida.lista .pista div { background: var(--ok); }
   .subida.mal .pista div { background: var(--error); }
-  #msg { margin-top: 10px; font-size: 13.5px; min-height: 20px; }
+  #msg { margin-top: 6px; font-size: 12.5px; }
+  .barra { margin-top: 0; }
+
+  /* Pantallas chicas: se apilan las columnas y ahí sí scrollea la página. */
+  @media (max-width: 1000px) {
+    html, body { height: auto; }
+    body { overflow: auto; }
+    main { grid-template-columns: 1fr; grid-template-rows: none; }
+    .caja { max-height: 62vh; }
+  }
   .ok { color: var(--ok); } .err { color: var(--error); } .info { color: var(--tenue); }
 </style>
 </head>
 <body>
-<h1>PRAT — Panel de render <small id="proxima"></small></h1>
+<header>
+  <h1>PRAT <small id="proxima"></small></h1>
+  <div class="marcador">
+    <span>Total <b id="total">—</b></span>
+    <span id="techo"></span>
+  </div>
+  <div class="acciones">
+    <button id="btnComando">Comando</button>
+    <button id="btnPrueba">Prueba (5 s/clip)</button>
+    <button id="btnFinal">Exportar final</button>
+  </div>
+</header>
 
 <div id="aviso"></div>
 
-<div class="caja">
-  <div id="zona">Arrastrá videos acá o <b>elegí archivos</b><br>
-    <span style="font-size:12.5px">se normalizan solos a 29.97 CFR y entran a la lista</span></div>
-  <input type="file" id="archivos" accept=".mp4,.mov,.MOV,.mkv,.m4v,.avi,.webm,video/*" multiple hidden>
-  <div id="subidas"></div>
-</div>
+<main>
+  <section class="caja">
+    <h2>Orden de los clips</h2>
+    <div class="cuerpo"><ul id="lista"></ul></div>
+    <div class="pie fila">
+      <label>Separador <input type="number" id="sep" min="0" step="0.5" value="2"> s</label>
+    </div>
+  </section>
 
-<div class="caja">
-  <ul id="lista"></ul>
-  <div class="fila" style="margin-top:6px">
-    <label>Separador (negro): <input type="number" id="sep" min="0" step="0.5" value="2"> s</label>
-    <span class="total">Duración total: <b id="total">—</b></span>
-  </div>
-  <div id="techo" style="text-align:right; font-size:12.5px; color:var(--tenue); margin-top:4px"></div>
-</div>
+  <section class="caja">
+    <h2>
+      <label style="font-weight:700">
+        <input type="checkbox" id="geomOn">
+        Geometría de la TV
+      </label>
+    </h2>
+    <div class="cuerpo">
+      <div class="fila" id="geomCtrl">
+        <label>Giro <select id="giro">
+          <option value="0">sin girar</option>
+          <option value="1">90° horario</option>
+          <option value="2">90° antihorario</option>
+          <option value="3">90° antih. + espejo</option>
+        </select></label>
+        <label>OFFX <input type="number" id="offx" min="0" max="1920" step="1"></label>
+        <label>OFFY <input type="number" id="offy" min="0" max="1920" step="1"></label>
+        <label>previo <select id="vistaClip"></select></label>
+      </div>
+      <img id="vista" alt="vista previa de la geometría">
+      <div id="zona">Arrastrá videos acá o <b>elegí archivos</b><br>
+        <span style="font-size:12px">se normalizan solos a 29.97 CFR</span></div>
+      <input type="file" id="archivos" accept=".mp4,.mov,.MOV,.mkv,.m4v,.avi,.webm,video/*" multiple hidden>
+      <div id="subidas"></div>
+    </div>
+  </section>
 
-<div class="caja">
-  <div class="fila" style="margin-bottom:12px">
-    <label style="color:var(--texto); font-weight:600">
-      <input type="checkbox" id="geomOn" style="width:16px;height:16px;accent-color:var(--acento);vertical-align:-2px">
-      Geometría de la TV
-    </label>
-    <span style="color:var(--tenue); font-size:12.5px">rotación + portilla · obliga a reencodear</span>
-  </div>
-  <div class="fila" id="geomCtrl">
-    <label>Giro <select id="giro">
-      <option value="0">sin girar</option>
-      <option value="1">90° horario</option>
-      <option value="2">90° antihorario</option>
-      <option value="3">90° antih. + espejo</option>
-    </select></label>
-    <label>OFFX <input type="number" id="offx" min="0" max="1920" step="1"></label>
-    <label>OFFY <input type="number" id="offy" min="0" max="1920" step="1"></label>
-    <label>previo de <select id="vistaClip"></select></label>
-  </div>
-  <img id="vista" alt="vista previa de la geometría">
-</div>
+  <section class="caja">
+    <h2>Videos generados <span id="avisoBajada"></span></h2>
+    <div class="cuerpo"><div id="salidas2"></div></div>
+  </section>
+</main>
 
-<div class="caja">
-  <div class="fila" style="margin-bottom:12px">
-    <b style="font-size:15px">Videos generados</b>
-    <span style="color:var(--tenue); font-size:12.5px" id="avisoBajada"></span>
-  </div>
-  <div id="salidas2"></div>
-</div>
-
-<div class="caja">
-  <div class="fila">
-    <button id="btnComando">Ver comando ffmpeg</button>
-    <button id="btnPrueba">Exportar prueba (5 s/clip)</button>
-    <button id="btnFinal">Exportar final</button>
-  </div>
-  <pre id="comando"></pre>
+<footer>
   <div class="barra" id="barra"><div id="avance"></div></div>
   <div id="msg"></div>
-</div>
+  <pre id="comando"></pre>
+</footer>
 
 <script>
 let clips = [];          // [{nombre, dur, mb, fps, res, activo}]
@@ -227,8 +276,8 @@ function render() {
     li.innerHTML = `
       <span class="agarre">⠿</span>
       <span class="num">${c.activo ? ++pos : '·'}</span>
-      <span class="nombre">${c.nombre}</span>
-      <span class="meta">${fmt(c.dur)} · ${c.res} · ${c.fps} · ${c.mb} MB</span>
+      <span class="nombre" title="${c.nombre}">${c.nombre}</span>
+      <span class="meta" title="${c.res} · ${c.fps}">${fmt(c.dur)} · ${c.mb} MB</span>
       <input type="checkbox" ${c.activo ? 'checked' : ''} title="incluir en el render">`;
     li.querySelector('input').onchange = e => { c.activo = e.target.checked; render(); guardar(); };
     li.addEventListener('dragstart', e => { li.classList.add('arrastrando'); e.dataTransfer.setData('text', i); });

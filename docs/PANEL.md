@@ -126,6 +126,26 @@ se transmite por bloques — cargar 2 GB en memoria voltearía el panel.
 Para bajar conviene la vía directa: son gigas, y por Cloudflare dan la vuelta
 por el datacenter.
 
+## Diseño
+
+El panel ocupa la pantalla completa y **no scrollea**: tres columnas —orden de
+clips, geometría y subida, videos generados— que llegan hasta abajo. Lo que
+scrollea es cada columna por dentro cuando su lista no entra, así que los
+botones de exportar y el total quedan siempre a la vista, arriba.
+
+Por debajo de 1000 px de ancho las columnas se apilan y ahí sí scrollea la
+página, que es inevitable.
+
+Dos detalles del layout que conviene no romper:
+
+- El `body` es flex, no grid con `grid-template-rows`. Con filas posicionales,
+  al ocultarse el aviso de la vía directa (`display:none`) deja de generar fila
+  y el `1fr` se lo lleva el footer: `main` queda con su altura natural y las
+  columnas no llegan al piso.
+- `min-height: 0` en `main` y en las cajas es lo que permite el scroll interno.
+  Sin eso, un hijo de flex/grid nunca se encoge por debajo de su contenido y el
+  scroll aparece en la página entera.
+
 ## Operación
 
 ```bash
