@@ -17,6 +17,29 @@ El panel **nunca** se expone directo: escucha solo en loopback y a internet lo
 saca el túnel, que abre una conexión saliente (no hay puertos abiertos en el
 router).
 
+## Subir videos
+
+Se arrastran al panel (o se eligen con el botón). El flujo es automático:
+
+1. El archivo se sube **en trozos de 40 MB**. Cloudflare rechaza cualquier
+   request de más de 100 MB, así que un clip de 1 GB no entra de una: el
+   navegador lo parte y el servidor lo va agregando a un parcial en
+   `4-pruebas/.subidas/`.
+2. Cuando llega el último trozo, el archivo pasa a `1-fuentes/`.
+3. Arranca sola la normalización a `2-normalizados/<nombre>-CFR.mp4`, con
+   progreso en la misma fila.
+4. Al terminar, el clip aparece en la lista y ya se puede ordenar y exportar.
+
+Si el clip **ya cumple la spec** (h264 1080p, 29.97 CFR, yuv420p, AAC 48 kHz
+estéreo) se copia sin re-encode. Si no, se reencodea: se escala a 1920×1080
+manteniendo el aspecto y rellenando con negro, y si no trae audio se le agrega
+una pista de silencio — el concat demuxer necesita que todos los clips tengan
+los mismos streams.
+
+Extensiones aceptadas: `.mp4 .mov .mkv .m4v .avi .webm`. El nombre se sanea
+(se queda solo el basename, sin acentos ni caracteres raros) y nunca pisa un
+archivo existente: agrega `-2`, `-3`, etc.
+
 ## Operación
 
 ```bash

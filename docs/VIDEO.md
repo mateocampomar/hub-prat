@@ -12,6 +12,10 @@ ffprobe -v error -select_streams v:0 \
 Si `r_frame_rate != avg_frame_rate` → el clip es VFR y hay que normalizarlo sí o sí.
 
 ## 3. Normalizar
+Lo más rápido: arrastrar el video al panel. Se sube en trozos, cae en
+`1-fuentes/` y se normaliza solo a `2-normalizados/`. Ver `docs/PANEL.md`.
+
+A mano, cuando conviene elegir el método de conversión de cadencia:
 `scripts/normalizar.sh` — lleva todo a 29.97 CFR, misma resolución, yuv420p.
 Clips con frames duplicados: `mpdecimate` + `minterpolate`.
 

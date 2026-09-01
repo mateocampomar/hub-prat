@@ -12,23 +12,29 @@ import hmac
 import json
 import re
 import secrets
+import shutil
 import subprocess
 import tempfile
 import threading
+import unicodedata
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 PUERTO = 8787
 REPO = Path(__file__).resolve().parent.parent
+FUENTES = REPO / "1-fuentes"
 NORMALIZADOS = REPO / "2-normalizados"
 RENDER = REPO / "3-render"
 PRUEBAS = REPO / "4-pruebas"
 ORDEN_JSON = REPO / "scripts" / "panel-orden.json"
 PANEL_HTML = REPO / "scripts" / "panel" / "index.html"
 CREDENCIALES = REPO / ".env"
+PARCIALES = REPO / "4-pruebas" / ".subidas"
 
 SEP_DEFAULT = 2.0
 PRUEBA_SEG_POR_CLIP = 5.0
+EXTENSIONES = {".mp4", ".mov", ".mkv", ".m4v", ".avi", ".webm"}
 
 # Spec de render (CLAUDE.md / docs/VIDEO.md)
 SPEC_FPS = "30000/1001"
@@ -46,6 +52,10 @@ estado = {
     "comando": None,
 }
 lock = threading.Lock()
+
+# Normalizaciones en curso, una entrada por archivo subido.
+trabajos = {}
+lock_trabajos = threading.Lock()
 
 
 def cargar_credenciales():
@@ -87,6 +97,112 @@ def clip_valido(nombre):
     if ruta.parent != NORMALIZADOS.resolve() or not ruta.is_file():
         raise ValueError(f"No existe el clip {nombre}")
     return ruta
+
+
+def nombre_seguro(nombre):
+    """Sanea el nombre que manda el navegador.
+
+    Se queda solo con el basename y con caracteres previsibles: el nombre
+    termina siendo parte de una ruta y de un comando de ffmpeg.
+    """
+    nombre = Path(nombre).name
+    nombre = unicodedata.normalize("NFKD", nombre).encode("ascii", "ignore").decode()
+    tallo, punto, ext = nombre.rpartition(".")
+    ext = ("." + ext).lower()
+    if not punto or ext not in EXTENSIONES:
+        raise ValueError(f"Extensión no permitida ({ext or 'sin extensión'}). "
+                         f"Aceptadas: {', '.join(sorted(EXTENSIONES))}")
+    tallo = re.sub(r"[^A-Za-z0-9._-]+", "-", tallo).strip("-.") or "clip"
+    return tallo[:80] + ext
+
+
+def sin_pisar(directorio, nombre):
+    """Agrega -2, -3… si ya existe un archivo con ese nombre."""
+    destino = directorio / nombre
+    if not destino.exists():
+        return destino
+    tallo, ext = destino.stem, destino.suffix
+    for n in range(2, 1000):
+        cand = directorio / f"{tallo}-{n}{ext}"
+        if not cand.exists():
+            return cand
+    raise ValueError("Demasiados archivos con ese nombre")
+
+
+def cumple_spec(p):
+    """¿El clip ya está en la spec y se puede concatenar sin re-encode?"""
+    codec, ancho, alto, fps, pixfmt = p["video"]
+    return (codec == "h264" and ancho == SPEC_ANCHO and alto == SPEC_ALTO
+            and fps == SPEC_FPS and pixfmt == SPEC_PIXFMT
+            and p["audio"] is not None
+            and p["audio"][0] == "aac" and str(p["audio"][1]) == "48000"
+            and int(p["audio"][2]) == 2)
+
+
+def cmd_normalizar(origen, salida, props):
+    """ffmpeg para llevar un clip a la spec: 1080p, 29.97 CFR, yuv420p, AAC 48k.
+
+    scale+pad mantiene el aspecto original y rellena con negro; sin eso un clip
+    vertical saldría deformado. Si el clip no trae audio se le agrega una pista
+    de silencio: el concat demuxer necesita que todos tengan los mismos streams.
+    """
+    entrada = ["-i", str(origen)]
+    mapeo = []
+    if props["audio"] is None:
+        entrada += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
+        mapeo = ["-map", "0:v:0", "-map", "1:a:0", "-shortest"]
+    vf = (f"scale={SPEC_ANCHO}:{SPEC_ALTO}:force_original_aspect_ratio=decrease,"
+          f"pad={SPEC_ANCHO}:{SPEC_ALTO}:(ow-iw)/2:(oh-ih)/2,setsar=1,fps={SPEC_FPS}")
+    return ["ffmpeg", "-y", "-v", "error", *entrada, *mapeo,
+            "-vf", vf,
+            "-c:v", "libx264", "-crf", "18", "-preset", "slow",
+            "-pix_fmt", SPEC_PIXFMT,
+            "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2",
+            "-movflags", "+faststart",
+            "-progress", "pipe:1", "-nostats", str(salida)]
+
+
+def anotar(nombre, **kw):
+    with lock_trabajos:
+        trabajos.setdefault(nombre, {}).update(kw)
+
+
+def normalizar_subido(origen):
+    """Lleva a 2-normalizados/ un clip recién subido a 1-fuentes/."""
+    nombre = origen.name
+    try:
+        props = props_clip(origen)
+        salida = sin_pisar(NORMALIZADOS, f"{origen.stem}-CFR.mp4")
+
+        if cumple_spec(props):
+            # Ya está en la spec: copiarlo es instantáneo y no pierde calidad.
+            anotar(nombre, estado="copiando", progreso=0.0,
+                   mensaje="Ya cumple la spec, copiando")
+            shutil.copy2(origen, salida)
+            anotar(nombre, estado="ok", progreso=1.0, salida=salida.name,
+                   mensaje=f"Listo (sin re-encode) → {salida.name}")
+            return
+
+        dur = props["dur"]
+        anotar(nombre, estado="normalizando", progreso=0.0,
+               mensaje="Normalizando a 29.97 CFR")
+        proc = subprocess.Popen(cmd_normalizar(origen, salida, props),
+                                stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                text=True)
+        for linea in proc.stdout:
+            m = re.match(r"out_time_ms=(\d+)", linea)
+            if m and dur > 0:
+                anotar(nombre, progreso=min(1.0, int(m.group(1)) / 1e6 / dur))
+        proc.wait()
+        if proc.returncode == 0:
+            anotar(nombre, estado="ok", progreso=1.0, salida=salida.name,
+                   mensaje=f"Listo → {salida.name}")
+        else:
+            salida.unlink(missing_ok=True)
+            anotar(nombre, estado="error",
+                   mensaje=proc.stderr.read()[-600:] or "ffmpeg falló")
+    except Exception as e:
+        anotar(nombre, estado="error", mensaje=str(e))
 
 
 def ffprobe(path, *entradas):
@@ -272,9 +388,55 @@ class Handler(BaseHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         return json.loads(self.rfile.read(n) or b"{}")
 
+    def _recibir_trozo(self, consulta):
+        """Recibe un trozo del archivo y lo agrega al parcial.
+
+        El navegador manda el archivo por partes porque Cloudflare rechaza los
+        request de más de 100 MB, y acá los clips pesan cientos de MB.
+        """
+        nombre = nombre_seguro(consulta["nombre"][0])
+        offset = int(consulta.get("offset", ["0"])[0])
+        ultimo = consulta.get("final", ["0"])[0] == "1"
+        PARCIALES.mkdir(parents=True, exist_ok=True)
+        parcial = PARCIALES / (nombre + ".part")
+
+        if offset == 0:
+            parcial.unlink(missing_ok=True)
+        elif not parcial.exists():
+            raise ValueError("No hay una subida en curso para ese archivo: "
+                             "volvé a empezar desde el offset 0")
+        elif parcial.stat().st_size != offset:
+            # El cliente y el servidor no coinciden: mejor cortar que guardar
+            # un archivo corrupto.
+            raise ValueError(
+                f"Trozo fuera de orden (esperaba {parcial.stat().st_size}, vino {offset})")
+
+        faltan = int(self.headers.get("Content-Length", 0))
+        with open(parcial, "ab") as f:
+            while faltan > 0:
+                datos = self.rfile.read(min(1 << 20, faltan))
+                if not datos:
+                    raise ValueError("Se cortó la subida")
+                f.write(datos)
+                faltan -= len(datos)
+
+        if not ultimo:
+            return {"ok": True, "recibido": parcial.stat().st_size}
+
+        destino = sin_pisar(FUENTES, nombre)
+        parcial.replace(destino)
+        anotar(destino.name, estado="normalizando", progreso=0.0,
+               mensaje="En cola")
+        threading.Thread(target=normalizar_subido, args=(destino,),
+                         daemon=True).start()
+        return {"ok": True, "completo": True, "nombre": destino.name}
+
     def do_GET(self):
         if not self._autorizado():
             return
+        if self.path == "/api/trabajos":
+            with lock_trabajos:
+                return self._json(trabajos)
         if self.path == "/":
             cuerpo = PANEL_HTML.read_bytes()
             self.send_response(200)
@@ -295,7 +457,12 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         if not self._autorizado():
             return
+        partes = urlparse(self.path)
         try:
+            # La subida manda binario crudo, no JSON: va antes de leer el body.
+            if partes.path == "/api/subir":
+                return self._json(self._recibir_trozo(parse_qs(partes.query)))
+
             body = self._leer_body()
             if self.path == "/api/orden":
                 ORDEN_JSON.write_text(json.dumps(
@@ -320,6 +487,10 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 self._json({"error": "no existe"}, 404)
         except Exception as e:
+            if partes.path == "/api/subir":
+                # El body quedó a medio leer: reusar la conexión leería basura
+                # como si fuera el próximo request.
+                self.close_connection = True
             self._json({"error": str(e)}, 500)
 
     def log_message(self, *a):

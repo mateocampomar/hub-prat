@@ -62,12 +62,35 @@
   }
   .barra { height: 10px; background: #10131a; border-radius: 6px; overflow: hidden; margin-top: 12px; display: none; }
   .barra div { height: 100%; width: 0; background: var(--acento); transition: width .5s; }
+  #zona {
+    border: 1.5px dashed var(--borde); border-radius: 10px; padding: 22px;
+    text-align: center; color: var(--tenue); font-size: 14px; cursor: pointer;
+    transition: border-color .15s, background .15s;
+  }
+  #zona:hover, #zona.encima { border-color: var(--acento); background: #1c202a; color: var(--texto); }
+  #zona b { color: var(--acento); }
+  .subida { padding: 9px 12px; border: 1px solid var(--borde); border-radius: 9px;
+            margin-top: 8px; background: #1c202a; font-size: 13.5px; }
+  .subida .cab { display: flex; gap: 10px; align-items: baseline; }
+  .subida .cab b { flex: 1; }
+  .subida .cab span { color: var(--tenue); font-size: 12.5px; }
+  .subida .pista { height: 6px; background: #10131a; border-radius: 4px; overflow: hidden; margin-top: 7px; }
+  .subida .pista div { height: 100%; width: 0; background: var(--acento); transition: width .3s; }
+  .subida.lista .pista div { background: var(--ok); }
+  .subida.mal .pista div { background: var(--error); }
   #msg { margin-top: 10px; font-size: 13.5px; min-height: 20px; }
   .ok { color: var(--ok); } .err { color: var(--error); } .info { color: var(--tenue); }
 </style>
 </head>
 <body>
 <h1>PRAT — Panel de render <small id="proxima"></small></h1>
+
+<div class="caja">
+  <div id="zona">Arrastrá videos acá o <b>elegí archivos</b><br>
+    <span style="font-size:12.5px">se normalizan solos a 29.97 CFR y entran a la lista</span></div>
+  <input type="file" id="archivos" accept="video/*" multiple hidden>
+  <div id="subidas"></div>
+</div>
 
 <div class="caja">
   <ul id="lista"></ul>
@@ -194,6 +217,86 @@ async function cargar() {
   $('proxima').textContent = 'próxima salida: ' + d.proxima;
   render();
 }
+
+// ---- Subida de videos ----
+// Cloudflare rechaza request de más de 100 MB, así que el archivo va en trozos.
+const TROZO = 40 * 1024 * 1024;
+const enCurso = {};   // nombre -> elemento de la lista de subidas
+
+function filaSubida(nombre) {
+  if (enCurso[nombre]) return enCurso[nombre];
+  const div = document.createElement('div');
+  div.className = 'subida';
+  div.innerHTML = `<div class="cab"><b></b><span></span></div>
+                   <div class="pista"><div></div></div>`;
+  div.querySelector('b').textContent = nombre;
+  $('subidas').appendChild(div);
+  return (enCurso[nombre] = div);
+}
+
+function pintar(nombre, texto, frac, clase) {
+  const d = filaSubida(nombre);
+  d.querySelector('span').textContent = texto;
+  d.querySelector('.pista div').style.width = (frac * 100).toFixed(1) + '%';
+  d.className = 'subida' + (clase ? ' ' + clase : '');
+}
+
+async function subir(archivo) {
+  const nombre = archivo.name;
+  let offset = 0;
+  try {
+    while (offset < archivo.size) {
+      const fin = Math.min(offset + TROZO, archivo.size);
+      const ultimo = fin >= archivo.size;
+      const q = `nombre=${encodeURIComponent(nombre)}&offset=${offset}&final=${ultimo ? 1 : 0}`;
+      const r = await fetch('/api/subir?' + q, {
+        method: 'POST', body: archivo.slice(offset, fin),
+        headers: { 'Content-Type': 'application/octet-stream' }
+      });
+      const d = await r.json();
+      if (!r.ok || d.error) throw new Error(d.error || `HTTP ${r.status}`);
+      offset = fin;
+      pintar(nombre, `subiendo ${(offset / archivo.size * 100).toFixed(0)} %`,
+             offset / archivo.size);
+      if (d.completo) {
+        // El servidor puede haberlo renombrado para no pisar nada.
+        delete enCurso[nombre];
+        enCurso[d.nombre] = filaSubida(nombre);
+        enCurso[d.nombre].querySelector('b').textContent = d.nombre;
+        pintar(d.nombre, 'normalizando…', 1);
+        seguirTrabajos();
+      }
+    }
+  } catch (e) {
+    pintar(nombre, 'falló: ' + e.message, 1, 'mal');
+  }
+}
+
+let poll = null;
+async function seguirTrabajos() {
+  if (poll) return;
+  poll = setInterval(async () => {
+    const t = await (await fetch('/api/trabajos')).json();
+    let quedan = false;
+    for (const [nombre, j] of Object.entries(t)) {
+      if (!enCurso[nombre]) continue;
+      if (j.estado === 'ok') pintar(nombre, j.mensaje, 1, 'lista');
+      else if (j.estado === 'error') pintar(nombre, 'error: ' + j.mensaje, 1, 'mal');
+      else { quedan = true; pintar(nombre, `${j.mensaje} ${(j.progreso*100).toFixed(0)} %`, j.progreso || 0); }
+    }
+    cargar();
+    if (!quedan) { clearInterval(poll); poll = null; }
+  }, 1500);
+}
+
+const zona = $('zona');
+zona.onclick = () => $('archivos').click();
+$('archivos').onchange = e => { [...e.target.files].forEach(subir); e.target.value = ''; };
+['dragenter','dragover'].forEach(ev => zona.addEventListener(ev, e => {
+  e.preventDefault(); zona.classList.add('encima'); }));
+['dragleave','drop'].forEach(ev => zona.addEventListener(ev, e => {
+  e.preventDefault(); zona.classList.remove('encima'); }));
+zona.addEventListener('drop', e => [...e.dataTransfer.files].forEach(subir));
 
 $('sep').onchange = () => { calcTotal(); guardar(); };
 $('btnComando').onclick = () => verComando('final');
