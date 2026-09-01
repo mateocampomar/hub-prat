@@ -8,4 +8,10 @@
 *.mkv
 *.wav
 
+# Credenciales del panel
+.env
+
+# Logs del LaunchAgent
+logs/
+
 .DS_Store

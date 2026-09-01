@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.hub-prat.panel</string>
+
+    <!-- Panel de render de PRAT: hub-prat.skatoramps.com
+
+         Escucha solo en 127.0.0.1; a internet lo saca el túnel de Cloudflare
+         (ver la regla de hub-prat en ~/.cloudflared/config.yml). Las
+         credenciales de HTTP Basic salen de hub-prat/.env, que el panel crea
+         solo la primera vez si no existe. -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/bin/python3</string>
+        <string>/Users/mateo/hub-prat/scripts/panel.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string>/Users/mateo/hub-prat</string>
+
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>15</integer>
+
+    <!-- Sin esto Python bufferea stdout al redirigirlo a un archivo y el log
+         queda atrasado. -->
+    <!-- launchd arranca con un PATH mínimo que no incluye Homebrew: sin esto
+         el panel no encuentra ffmpeg/ffprobe y lista los clips vacíos. -->
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+    </dict>
+
+    <key>StandardOutPath</key>
+    <string>/Users/mateo/hub-prat/logs/panel.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/mateo/hub-prat/logs/panel.err.log</string>
+</dict>
+</plist>

@@ -7,8 +7,11 @@ el render final (concat demuxer, spec: h264 29.97 CFR yuv420p).
 Uso:  python3 scripts/panel.py   →  http://localhost:8787
 """
 
+import base64
+import hmac
 import json
 import re
+import secrets
 import subprocess
 import tempfile
 import threading
@@ -22,6 +25,7 @@ RENDER = REPO / "3-render"
 PRUEBAS = REPO / "4-pruebas"
 ORDEN_JSON = REPO / "scripts" / "panel-orden.json"
 PANEL_HTML = REPO / "scripts" / "panel" / "index.html"
+CREDENCIALES = REPO / ".env"
 
 SEP_DEFAULT = 2.0
 PRUEBA_SEG_POR_CLIP = 5.0
@@ -42,6 +46,47 @@ estado = {
     "comando": None,
 }
 lock = threading.Lock()
+
+
+def cargar_credenciales():
+    """Lee usuario/clave de .env. Si no existe, lo crea con una clave random.
+
+    El panel se publica por el túnel de Cloudflare, así que sale a internet:
+    sin credenciales cualquiera podría disparar renders.
+    """
+    if CREDENCIALES.exists():
+        datos = {}
+        for linea in CREDENCIALES.read_text().splitlines():
+            if "=" in linea and not linea.strip().startswith("#"):
+                k, _, v = linea.partition("=")
+                datos[k.strip()] = v.strip()
+        if datos.get("PANEL_USER") and datos.get("PANEL_PASS"):
+            return datos["PANEL_USER"], datos["PANEL_PASS"]
+
+    usuario, clave = "mateo", secrets.token_urlsafe(18)
+    CREDENCIALES.write_text(
+        "# Credenciales del panel. NO va al repo (está en .gitignore).\n"
+        f"PANEL_USER={usuario}\nPANEL_PASS={clave}\n")
+    CREDENCIALES.chmod(0o600)
+    print(f"Credenciales nuevas en {CREDENCIALES}:\n  usuario: {usuario}\n  clave:   {clave}")
+    return usuario, clave
+
+
+USUARIO, CLAVE = cargar_credenciales()
+
+
+def clip_valido(nombre):
+    """Solo nombres de archivos que existan en 2-normalizados/.
+
+    El nombre llega del cliente: sin este chequeo un '../..' armaría rutas
+    fuera del directorio.
+    """
+    if "/" in nombre or "\\" in nombre or nombre.startswith("."):
+        raise ValueError(f"Nombre inválido: {nombre}")
+    ruta = (NORMALIZADOS / nombre).resolve()
+    if ruta.parent != NORMALIZADOS.resolve() or not ruta.is_file():
+        raise ValueError(f"No existe el clip {nombre}")
+    return ruta
 
 
 def ffprobe(path, *entradas):
@@ -117,10 +162,9 @@ def separador(seg):
 
 def armar_export(orden, sep, modo):
     """Devuelve (comando ffmpeg, archivo de lista, salida, dur_total, copia)."""
-    rutas = [NORMALIZADOS / n for n in orden]
-    for r in rutas:
-        if not r.exists():
-            raise ValueError(f"No existe {r.name}")
+    if not orden:
+        raise ValueError("No hay clips seleccionados")
+    rutas = [clip_valido(n) for n in orden]
     props = [props_clip(r) for r in rutas]
 
     # ¿streams uniformes? → concat con -c copy (sin pérdida)
@@ -195,6 +239,27 @@ def correr_export(cmd, salida, dur_total, modo):
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _autorizado(self):
+        """HTTP Basic. Compara con hmac para no filtrar por tiempo de respuesta."""
+        cabecera = self.headers.get("Authorization", "")
+        ok = False
+        if cabecera.startswith("Basic "):
+            try:
+                usuario, _, clave = base64.b64decode(
+                    cabecera[6:]).decode("utf-8", "replace").partition(":")
+                ok = (hmac.compare_digest(usuario, USUARIO)
+                      and hmac.compare_digest(clave, CLAVE))
+            except Exception:
+                ok = False
+        if not ok:
+            cuerpo = b"Credenciales requeridas"
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="Panel PRAT"')
+            self.send_header("Content-Length", str(len(cuerpo)))
+            self.end_headers()
+            self.wfile.write(cuerpo)
+        return ok
+
     def _json(self, obj, code=200):
         cuerpo = json.dumps(obj).encode()
         self.send_response(code)
@@ -208,6 +273,8 @@ class Handler(BaseHTTPRequestHandler):
         return json.loads(self.rfile.read(n) or b"{}")
 
     def do_GET(self):
+        if not self._autorizado():
+            return
         if self.path == "/":
             cuerpo = PANEL_HTML.read_bytes()
             self.send_response(200)
@@ -226,6 +293,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "no existe"}, 404)
 
     def do_POST(self):
+        if not self._autorizado():
+            return
         try:
             body = self._leer_body()
             if self.path == "/api/orden":
